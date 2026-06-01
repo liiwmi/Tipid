@@ -3,16 +3,22 @@ import React from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Drawer } from 'expo-router/drawer';
 import { Ionicons } from '@expo/vector-icons';
+import CustomDrawer from '../../components/drawer/CustomDrawer'; 
+
 
 export default function MainLayout() {
-  return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <Drawer
-        screenOptions={{
-          headerShown: false, // We hide the default header to use your custom one
-          drawerActiveTintColor: '#3498db', // Tipid Blue
-        }}
-      >
+  return(
+  <GestureHandlerRootView style={{ flex: 1 }}>
+  <Drawer
+    drawerContent={(props) => <CustomDrawer {...props} />}
+    screenOptions={{
+      headerShown: false,
+      drawerPosition: 'right',
+      drawerStyle: {
+        width: '80%',
+      },
+    }}
+  >
         <Drawer.Screen
           name="index"
           options={{
@@ -34,6 +40,13 @@ export default function MainLayout() {
             drawerIcon: ({ color }) => <Ionicons name="settings-outline" size={24} color={color} />,
           }}
         />
+        <Drawer.Screen
+        name="appliances"
+        options={{
+          drawerLabel: 'Appliances',
+          drawerIcon: ({ color }) => <Ionicons name="flash-outline" size={24} color={color} />,
+        }}
+      />
       </Drawer>
     </GestureHandlerRootView>
   );

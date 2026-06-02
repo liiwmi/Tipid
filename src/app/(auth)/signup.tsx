@@ -6,7 +6,6 @@ import {
   TextInput, 
   TouchableOpacity, 
   Alert, 
-  SafeAreaView, 
   KeyboardAvoidingView, 
   Platform,
   ActivityIndicator
@@ -15,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { globalStyles as styles } from '../../styles/styles';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SignUpScreen() {
   const router = useRouter();

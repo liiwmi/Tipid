@@ -23,13 +23,15 @@ import {
 } from "../../styles/theme";
 // 1. ADDED THE IMPORT HERE
 import { fetchOptimization } from "../../services/api";
+import { useState } from "react";
 
 export default function AppliancesScreen() {
   const { colors } = useTheme();
   const { appliances, activeAppliances, loading, isOnline, addAppliance } =
     useAppliances();
-  const { addApplianceVisible, openAddAppliance, closeAddAppliance } =
-    useAppContext();
+ const [addApplianceVisible, setAddApplianceVisible] = useState(false);
+  const openAddAppliance = () => setAddApplianceVisible(true);
+  const closeAddAppliance = () => setAddApplianceVisible(false);
   const insets = useSafeAreaInsets();
 
   // 2. ADDED TEMPORARY VARIABLES FOR TESTING
@@ -65,7 +67,6 @@ export default function AppliancesScreen() {
       {/* HEADER */}
       <View
         style={[
-          D,
           screenStyles.header,
           { borderBottomColor: colors.borderDefault },
         ]}
@@ -96,15 +97,6 @@ export default function AppliancesScreen() {
               </Text>
             </View>
           )}
-          <TouchableOpacity
-            style={[
-              screenStyles.addButton,
-              { backgroundColor: colors.primary },
-            ]}
-            onPress={() => openAddAppliance()}
-          >
-            <Ionicons name="add" size={22} color={colors.textOnDark} />
-          </TouchableOpacity>
         </View>
       </View>
 

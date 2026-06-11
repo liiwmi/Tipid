@@ -3,25 +3,24 @@ import { Alert, AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { Appliance } from '../types/appliance';
-import { ELECTRICITY_RATE, DAILY_KWH_LIMIT } from '../constants/electricity';
+import NetInfo from '@react-native-community/netinfo';
+import { useSettings } from '../context/SettingsContext';
 
 const APPLIANCES_CACHE_KEY = '@appliances_cache';
 const PENDING_QUEUE_KEY = '@pending_appliances';
+const PENDING_DELETES_KEY = '@pending_deletes';
 
 export function useAppliances() {
   const [appliances, setAppliances] = useState<Appliance[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(true);
+  const { electricityRate, dailyQuota } = useSettings();
 
   // ─── NETWORK CHECK ───────────────────────────────────────
-  async function checkOnline(): Promise<boolean> {
-    try {
-      const response = await fetch('https://www.google.com', { method: 'HEAD' });
-      return response.ok;
-    } catch {
-      return false;
+    async function checkOnline(): Promise<boolean> {
+      const state = await NetInfo.fetch();
+      return state.isConnected === true && state.isInternetReachable === true;
     }
-  }
 
   // ─── CACHE ───────────────────────────────────────────────
   async function saveCache(data: Appliance[]) {
@@ -54,26 +53,33 @@ export function useAppliances() {
   }
 
   // ─── SYNC PENDING ────────────────────────────────────────
-  async function syncPending() {
-    const queue = await getPendingQueue();
-    if (queue.length === 0) return;
+ async function syncPending() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const failed: Omit<Appliance, 'id' | 'created_at'>[] = [];
-
-    for (const item of queue) {
-      const { error } = await supabase.from('appliances').insert({
-        ...item,
-        user_id: user.id,
-      });
-      if (error) failed.push(item);
-    }
-
-    await savePendingQueue(failed);
-    await fetchFromServer();
+  // Sync pending inserts
+  const queue = await getPendingQueue();
+  const failed: Omit<Appliance, 'id' | 'created_at'>[] = [];
+  for (const item of queue) {
+    const { error } = await supabase.from('appliances').insert({
+      ...item,
+      user_id: user.id,
+    });
+    if (error) failed.push(item);
   }
+  await savePendingQueue(failed);
+
+  // Sync pending deletes
+  const deletes = await getPendingDeletes();
+  const failedDeletes: string[] = [];
+  for (const id of deletes) {
+    const { error } = await supabase.from('appliances').delete().eq('id', id);
+    if (error) failedDeletes.push(id);
+  }
+  await AsyncStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(failedDeletes));
+
+  await fetchFromServer();
+}
 
   // ─── FETCH FROM SERVER ───────────────────────────────────
   async function fetchFromServer() {
@@ -166,22 +172,75 @@ export function useAppliances() {
     }
   }
 
+  // ─── DELETE APPLIANCE ─────────────────────────────────────
+
+async function getPendingDeletes(): Promise<string[]> {
+  try {
+    const val = await AsyncStorage.getItem(PENDING_DELETES_KEY);
+    return val ? JSON.parse(val) : [];
+  } catch { return []; }
+}
+
+async function deleteAppliance(id: string) {
+  // Remove from local state immediately
+  const updated = appliances.filter((a) => a.id !== id);
+  setAppliances(updated);
+  await saveCache(updated);
+
+  // If temp (offline-created), just remove from pending queue too
+  if (id.startsWith('temp_')) {
+    const queue = await getPendingQueue();
+    const filtered = queue.filter((_, i) => `temp_${i}` !== id);
+    await savePendingQueue(filtered);
+    return;
+  }
+
+  const online = await checkOnline();
+  if (online) {
+    await supabase.from('appliances').delete().eq('id', id);
+  } else {
+    // Queue the delete for later
+    const deletes = await getPendingDeletes();
+    deletes.push(id);
+    await AsyncStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(deletes));
+  }
+}
+
+// ─── TOGGLE ACTIVE ────────────────────────────────────────
+async function toggleActive(id: string) {
+  const appliance = appliances.find((a) => a.id === id);
+  if (!appliance) return;
+
+  const updated = appliances.map((a) =>
+    a.id === id ? { ...a, is_active: !a.is_active } : a
+  );
+  setAppliances(updated);
+  await saveCache(updated);
+
+  const online = await checkOnline();
+  if (online && !id.startsWith('temp_')) {
+    await supabase
+      .from('appliances')
+      .update({ is_active: !appliance.is_active })
+      .eq('id', id);
+  }
+}
+
   // ─── COMPUTED VALUES ─────────────────────────────────────
   const activeAppliances = appliances.filter((a) => a.is_active);
 
-  const calculateItemCost = (watts: number, hours: number) =>
-    ((watts * hours) / 1000) * ELECTRICITY_RATE;
+ const calculateItemCost = (watts: number, hours: number) =>
+  ((watts * hours) / 1000) * electricityRate;
 
-  const totalDailyKwh = appliances.reduce(
-    (total, item) => total + (item.watts * item.hours_per_day) / 1000, 0
-  );
+const totalDailyKwh = appliances.reduce(
+  (total, item) => total + (item.watts * item.hours_per_day) / 1000, 0
+);
 
-  const totalDailyCost = appliances.reduce(
-    (total, item) => total + calculateItemCost(item.watts, item.hours_per_day), 0
-  );
+const totalDailyCost = appliances.reduce(
+  (total, item) => total + calculateItemCost(item.watts, item.hours_per_day), 0
+);
 
-  const progressWidth = Math.min((totalDailyKwh / DAILY_KWH_LIMIT) * 100, 100);
-
+const progressWidth = Math.min((totalDailyKwh / dailyQuota) * 100, 100);
   return {
     appliances,
     activeAppliances,
@@ -191,6 +250,8 @@ export function useAppliances() {
     totalDailyCost,
     progressWidth,
     addAppliance,
+    deleteAppliance,
+    toggleActive,
     refresh: loadAppliances,
   };
 }

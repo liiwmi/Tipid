@@ -209,11 +209,10 @@ export const globalStyles = StyleSheet.create({
   // ─────────────────────────────────────────
 
   chartContainer: {
-    height: 150,
-    marginBottom: spacing.xxl,
-    justifyContent: 'flex-end',
-    position: 'relative',
-  },
+  height: 150,
+  justifyContent: 'flex-end',
+  position: 'relative',
+},
   thresholdLine: {
     position: 'absolute',
     left: 0,

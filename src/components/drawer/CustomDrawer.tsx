@@ -1,5 +1,12 @@
 import React from "react";
-import { View, Text, TouchableOpacity, Switch, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  Switch,
+  StyleSheet,
+  Alert,
+} from "react-native";
 import { DrawerContentScrollView } from "@react-navigation/drawer";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,16 +18,23 @@ import {
   spacing,
   borderRadius,
 } from "../../styles/theme";
-import { useAppContext } from "../../context/AppContext";
 
 export default function CustomDrawer(props: any) {
   const router = useRouter();
   const { isDarkMode, toggleDarkMode, colors } = useTheme();
-  const { openAddAppliance } = useAppContext();
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.replace("/(auth)/login" as any);
+  const handleSignOut = () => {
+    Alert.alert("Sign out", "Are you sure you want to sign out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign Out",
+        style: "destructive",
+        onPress: async () => {
+          await supabase.auth.signOut();
+          router.replace("/(auth)/login" as any);
+        },
+      },
+    ]);
   };
 
   const navItems = [
@@ -56,8 +70,14 @@ export default function CustomDrawer(props: any) {
         { backgroundColor: colors.bgPrimary },
       ]}
     >
-     {/* PROFILE */}
-<View style={drawerStyles.profileSection}>
+      {/* PROFILE */}
+      <TouchableOpacity
+  style={drawerStyles.profileSection}
+  onPress={() => {
+    props.navigation.closeDrawer();
+    props.navigation.navigate('profile');
+  }}
+>
   <View style={drawerStyles.profileRow}>
     <View style={[drawerStyles.avatar, { backgroundColor: colors.bgSecondary }]}>
       <Text style={[drawerStyles.avatarInitials, { color: colors.primary }]}>RK</Text>
@@ -66,14 +86,9 @@ export default function CustomDrawer(props: any) {
       <Text style={[drawerStyles.profileName, { color: colors.textPrimary }]}>Ryul Kim</Text>
       <Text style={[drawerStyles.profileEmail, { color: colors.textSecondary }]}>ryul@email.com</Text>
     </View>
-    <TouchableOpacity
-      style={drawerStyles.editIcon}
-      onPress={() => router.push('/(main)/profile' as any)}
-    >
-      <Ionicons name="pencil-outline" size={18} color={colors.textSecondary} />
-    </TouchableOpacity>
+    <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
   </View>
-</View>
+</TouchableOpacity>
 
       <View
         style={[
@@ -131,42 +146,19 @@ export default function CustomDrawer(props: any) {
 
       <View
         style={[
-          drawerStyles.divider,
-          { backgroundColor: colors.borderDefault },
+          drawerStyles.section,
+          { marginTop: "auto", paddingTop: spacing.lg },
         ]}
-      />
-
-      {/* SIGN OUT */}
-      <View style={drawerStyles.section}>
-        <TouchableOpacity style={drawerStyles.navItem} onPress={handleSignOut}>
-          <Ionicons name="log-out-outline" size={22} color={colors.danger} />
-          <Text style={[drawerStyles.navLabel, { color: colors.danger }]}>
-            Sign Out
+      >
+        <TouchableOpacity
+          style={[drawerStyles.signOutButton, { borderColor: colors.danger }]}
+          onPress={handleSignOut}
+        >
+          <Ionicons name="log-out-outline" size={20} color={colors.danger} />
+          <Text style={[drawerStyles.signOutText, { color: colors.danger }]}>
+            Sign out
           </Text>
         </TouchableOpacity>
-      </View>
-
-      <View
-        style={[
-          drawerStyles.divider,
-          { backgroundColor: colors.borderDefault },
-        ]}
-      />
-
-      {/* ADD APPLIANCE */}
-      <View style={drawerStyles.section}>
-       <TouchableOpacity
-        style={[drawerStyles.addButton, { backgroundColor: colors.primary }]}
-        onPress={() => {
-          props.navigation.closeDrawer();
-          setTimeout(() => openAddAppliance(), 300);
-        }}
-      >
-        <Ionicons name="add-circle-outline" size={22} color={colors.textOnDark} />
-        <Text style={[drawerStyles.addButtonText, { color: colors.textOnDark }]}>
-          Add an Appliance
-        </Text>
-      </TouchableOpacity>
       </View>
     </DrawerContentScrollView>
   );
@@ -175,7 +167,7 @@ export default function CustomDrawer(props: any) {
 const drawerStyles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: spacing.xxl,
+    paddingTop: 72,
   },
   profileSection: {
     paddingHorizontal: spacing.lg,
@@ -257,5 +249,18 @@ const drawerStyles = StyleSheet.create({
   addButtonText: {
     fontSize: fontSizes.base,
     fontWeight: fontWeights.bold,
+  },
+  signOutButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.md,
+    borderWidth: 0.5,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.md,
+  },
+  signOutText: {
+    fontSize: fontSizes.base,
+    fontWeight: fontWeights.semibold,
   },
 });

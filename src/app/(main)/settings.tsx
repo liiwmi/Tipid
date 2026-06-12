@@ -1,28 +1,30 @@
 // src/app/(main)/settings.tsx
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import * as Speech from "expo-speech";
+import * as Updates from "expo-updates";
 import React, { useState } from "react";
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  Switch,
-  TextInput,
   Alert,
+  Image,
+  ScrollView,
   StyleSheet,
-  Platform,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
-import * as Updates from "expo-updates";
-import * as Speech from "expo-speech";
-import { supabase } from "../../lib/supabase";
+import { FontSize, useSettings } from "../../context/SettingsContext";
 import { useTheme } from "../../context/ThemeContext";
-import { useSettings, FontSize } from "../../context/SettingsContext";
+import { useProfile } from "../../hooks/useProfile";
+import { supabase } from "../../lib/supabase";
 import {
+  borderRadius,
   fontSizes,
   fontWeights,
   spacing,
-  borderRadius,
 } from "../../styles/theme";
 
 // ─── FONT SIZE OPTIONS ──────────────────────────────────────
@@ -195,7 +197,16 @@ export default function SettingsScreen() {
     { backgroundColor: colors.bgCard, borderColor: colors.borderDefault },
   ];
   const rowBorder = { borderBottomColor: colors.borderDefault };
-
+  const { profile } = useProfile();
+  const initials = profile.displayName
+    ? profile.displayName
+        .split(" ")
+        .map((w) => w[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : "?";
+  const router = useRouter();
   return (
     <SafeAreaView
       edges={["top", "bottom", "left", "right"]}
@@ -210,32 +221,40 @@ export default function SettingsScreen() {
           Settings
         </Text>
 
-        {/* ── PROFILE ── */}
+        {/* PROFILE */}
         <SectionLabel label="Profile" />
-        <View style={cardStyle}>
+        <TouchableOpacity
+          style={cardStyle}
+          onPress={() => router.push("/(main)/profile" as any)}
+        >
           <View style={s.profileRow}>
-            <View style={[s.avatar, { backgroundColor: colors.bgListIcon }]}>
-              <Text style={[s.avatarInitials, { color: colors.primary }]}>
-                RK
-              </Text>
-            </View>
+            {profile.avatarUri ? (
+              <Image
+                source={{ uri: profile.avatarUri }}
+                style={{ width: 48, height: 48, borderRadius: 24 }}
+              />
+            ) : (
+              <View style={[s.avatar, { backgroundColor: colors.bgListIcon }]}>
+                <Text style={[s.avatarInitials, { color: colors.primary }]}>
+                  {initials}
+                </Text>
+              </View>
+            )}
             <View style={s.profileInfo}>
               <Text style={[s.profileName, { color: colors.textPrimary }]}>
-                Ryul Kim
+                {profile.displayName || "Your Name"}
               </Text>
               <Text style={[s.profileEmail, { color: colors.textSecondary }]}>
-                ryul@email.com
+                {profile.email || "your@email.com"}
               </Text>
             </View>
-            <TouchableOpacity
-              style={[s.editBtn, { borderColor: colors.primary }]}
-            >
-              <Text style={[s.editBtnText, { color: colors.primary }]}>
-                Edit
-              </Text>
-            </TouchableOpacity>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={colors.textSecondary}
+            />
           </View>
-        </View>
+        </TouchableOpacity>
 
         {/* ── ELECTRICITY ── */}
         <SectionLabel label="Electricity" />

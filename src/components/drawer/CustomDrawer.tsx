@@ -1,27 +1,36 @@
-import React from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  Switch,
-  StyleSheet,
-  Alert,
-} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { DrawerContentScrollView } from "@react-navigation/drawer";
 import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "../../lib/supabase";
-import { useTheme } from "../../context/ThemeContext";
+import React, { useState } from "react";
 import {
-  fontSizes,
-  fontWeights,
-  spacing,
-  borderRadius,
-} from "../../styles/theme";
+  Alert,
+  Image,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useTheme } from "../../context/ThemeContext";
+import { useProfile } from "../../hooks/useProfile";
+import { useAppliances } from "../../hooks/useAppliance";
+import { useSettings } from "../../context/SettingsContext";
+import { useNotifications } from "../../hooks/useNotifications";
+import { supabase } from "../../lib/supabase";
+import { borderRadius, fontSizes, fontWeights, spacing } from "../../styles/theme";
+import NotificationsPanel from "./NotificationsPanel";
 
 export default function CustomDrawer(props: any) {
   const router = useRouter();
   const { isDarkMode, toggleDarkMode, colors } = useTheme();
+  const { profile } = useProfile();
+  const { appliances, totalDailyKwh } = useAppliances();
+ const { dailyQuota, notifQuota, notifPeak, setNotifQuota, setNotifPeak, setNotifWeekly } = useSettings();
+  const {
+    notifications, unreadCount,
+    generateNotifications, markAsRead, markAllAsRead, clearAll,
+  } = useNotifications(appliances, totalDailyKwh, dailyQuota);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   const handleSignOut = () => {
     Alert.alert("Sign out", "Are you sure you want to sign out?", [
@@ -38,64 +47,51 @@ export default function CustomDrawer(props: any) {
   };
 
   const navItems = [
-    { label: "Settings", icon: "settings-outline", route: "/(main)/settings" },
-    { label: "Appliances", icon: "flash-outline", route: "/(main)/appliances" },
-    {
-      label: "Algorithm Report",
-      icon: "bar-chart-outline",
-      route: "/(main)/report",
-    },
-    {
-      label: "Notifications",
-      icon: "notifications-outline",
-      route: "/(main)/notifications",
-    },
-    {
-      label: "Help & Support",
-      icon: "help-circle-outline",
-      route: "/(main)/support",
-    },
-    {
-      label: "Privacy & Security",
-      icon: "shield-checkmark-outline",
-      route: "/(main)/privacy",
-    },
+    { label: "Settings",          icon: "settings-outline",          route: "/(main)/settings" },
+    { label: "Appliances",        icon: "flash-outline",             route: "/(main)/appliances" },
+    { label: "Algorithm Report",  icon: "bar-chart-outline",         route: "/(main)/report" },
+    { label: "Help & Support",    icon: "help-circle-outline",       route: "/(main)/support" },
+    { label: "Privacy & Security",icon: "shield-checkmark-outline",  route: "/(main)/privacy" },
   ];
 
   return (
     <DrawerContentScrollView
       {...props}
-      contentContainerStyle={[
-        drawerStyles.container,
-        { backgroundColor: colors.bgPrimary },
-      ]}
+      contentContainerStyle={[drawerStyles.container, { backgroundColor: colors.bgPrimary }]}
     >
       {/* PROFILE */}
       <TouchableOpacity
-  style={drawerStyles.profileSection}
-  onPress={() => {
-    props.navigation.closeDrawer();
-    props.navigation.navigate('profile');
-  }}
->
-  <View style={drawerStyles.profileRow}>
-    <View style={[drawerStyles.avatar, { backgroundColor: colors.bgSecondary }]}>
-      <Text style={[drawerStyles.avatarInitials, { color: colors.primary }]}>RK</Text>
-    </View>
-    <View style={drawerStyles.profileInfo}>
-      <Text style={[drawerStyles.profileName, { color: colors.textPrimary }]}>Ryul Kim</Text>
-      <Text style={[drawerStyles.profileEmail, { color: colors.textSecondary }]}>ryul@email.com</Text>
-    </View>
-    <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-  </View>
-</TouchableOpacity>
+        style={drawerStyles.profileSection}
+        onPress={() => {
+          props.navigation.closeDrawer();
+          props.navigation.navigate("profile");
+        }}
+      >
+        <View style={drawerStyles.profileRow}>
+          {profile.avatarUri ? (
+            <Image source={{ uri: profile.avatarUri }} style={{ width: 52, height: 52, borderRadius: 26 }} />
+          ) : (
+            <View style={[drawerStyles.avatar, { backgroundColor: colors.bgSecondary }]}>
+              <Text style={[drawerStyles.avatarInitials, { color: colors.primary }]}>
+                {profile.displayName
+                  ? profile.displayName.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2)
+                  : "?"}
+              </Text>
+            </View>
+          )}
+          <View style={drawerStyles.profileInfo}>
+            <Text style={[drawerStyles.profileName, { color: colors.textPrimary }]}>
+              {profile.displayName || "Your Name"}
+            </Text>
+            <Text style={[drawerStyles.profileEmail, { color: colors.textSecondary }]}>
+              {profile.email || "your@email.com"}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+        </View>
+      </TouchableOpacity>
 
-      <View
-        style={[
-          drawerStyles.divider,
-          { backgroundColor: colors.borderDefault },
-        ]}
-      />
+      <View style={[drawerStyles.divider, { backgroundColor: colors.borderDefault }]} />
 
       {/* NAV ITEMS */}
       <View style={drawerStyles.section}>
@@ -105,51 +101,63 @@ export default function CustomDrawer(props: any) {
             style={drawerStyles.navItem}
             onPress={() => router.push(item.route as any)}
           >
-            <Ionicons
-              name={item.icon as any}
-              size={22}
-              color={colors.textPrimary}
-            />
-            <Text
-              style={[drawerStyles.navLabel, { color: colors.textPrimary }]}
-            >
+            <Ionicons name={item.icon as any} size={22} color={colors.textPrimary} />
+            <Text style={[drawerStyles.navLabel, { color: colors.textPrimary }]}>
               {item.label}
             </Text>
           </TouchableOpacity>
         ))}
 
-        {/* DARK MODE TOGGLE */}
+        {/* NOTIFICATIONS TOGGLE */}
+      <View style={drawerStyles.toggleRow}>
+        <View style={drawerStyles.toggleLeft}>
+          <Ionicons name="notifications-outline" size={22} color={colors.textPrimary} />
+          <Text style={[drawerStyles.navLabel, { color: colors.textPrimary }]}>
+            Notifications
+          </Text>
+        </View>
+        <Switch
+          value={notifQuota}
+          onValueChange={async (val) => {
+            await setNotifQuota(val);
+            await setNotifPeak(val);
+            await setNotifWeekly(val);
+          }}
+          trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
+          thumbColor={colors.switchThumb}
+        />
+      </View>
+
+        {showNotifications && (
+          <NotificationsPanel
+            notifications={notifications}
+            onMarkAsRead={markAsRead}
+            onMarkAllAsRead={markAllAsRead}
+            onClear={clearAll}
+          />
+        )}
+
+        {/* DARK MODE */}
         <View style={drawerStyles.toggleRow}>
           <View style={drawerStyles.toggleLeft}>
-            <Ionicons
-              name="moon-outline"
-              size={22}
-              color={colors.textPrimary}
-            />
-            <Text
-              style={[drawerStyles.navLabel, { color: colors.textPrimary }]}
-            >
+            <Ionicons name="moon-outline" size={22} color={colors.textPrimary} />
+            <Text style={[drawerStyles.navLabel, { color: colors.textPrimary }]}>
               Dark Mode
             </Text>
           </View>
           <Switch
             value={isDarkMode}
             onValueChange={toggleDarkMode}
-            trackColor={{
-              false: colors.switchTrackOff,
-              true: colors.switchTrackOn,
-            }}
+            trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
             thumbColor={colors.switchThumb}
           />
         </View>
       </View>
 
-      <View
-        style={[
-          drawerStyles.section,
-          { marginTop: "auto", paddingTop: spacing.lg },
-        ]}
-      >
+      <View style={[drawerStyles.divider, { backgroundColor: colors.borderDefault }]} />
+
+      {/* SIGN OUT */}
+      <View style={[drawerStyles.section, { marginTop: 'auto', paddingTop: spacing.lg }]}>
         <TouchableOpacity
           style={[drawerStyles.signOutButton, { borderColor: colors.danger }]}
           onPress={handleSignOut}
@@ -200,9 +208,6 @@ const drawerStyles = StyleSheet.create({
     fontSize: fontSizes.sm,
     marginTop: 2,
   },
-  editIcon: {
-    padding: spacing.xs,
-  },
   section: {
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
@@ -237,18 +242,18 @@ const drawerStyles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.md,
   },
-  addButton: {
-    flexDirection: "row",
+  badge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    minWidth: 20,
     alignItems: "center",
-    gap: spacing.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    borderRadius: borderRadius.md,
-    marginHorizontal: spacing.xs,
+    marginLeft: spacing.xs,
   },
-  addButtonText: {
-    fontSize: fontSizes.base,
+  badgeText: {
+    fontSize: fontSizes.xs,
     fontWeight: fontWeights.bold,
+    color: "#fff",
   },
   signOutButton: {
     flexDirection: "row",

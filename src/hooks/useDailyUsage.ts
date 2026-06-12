@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const PREFIX = '@tipid_usage_';
 
 function getTodayKey() {
-  return PREFIX + new Date().toISOString().split('T')[0]; // e.g. @tipid_usage_2026-06-12
+  return PREFIX + new Date().toISOString().split('T')[0];
 }
 
 function getLast7Keys(): { key: string; day: string; date: string }[] {

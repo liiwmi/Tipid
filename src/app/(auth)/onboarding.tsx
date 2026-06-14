@@ -16,7 +16,7 @@ import GradientBackground from "../../components/common/Gradientbackground";
 import { useSettings } from "../../context/SettingsContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useAppliances } from "../../hooks/useAppliance";
-import { useProfile } from "../../hooks/useProfile";
+import { useProfileContext } from "../../context/ProfileContext";
 import { supabase } from "../../lib/supabase";
 import { globalStyles as styles } from "../../styles/styles";
 import {
@@ -114,7 +114,7 @@ export default function OnboardingScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const { setDailyQuota, setElectricityRate } = useSettings();
-  const { saveProfile, profile } = useProfile();
+  const { saveProfile, profile } = useProfileContext();
   const { addAppliance } = useAppliances();
 
   const [step, setStep] = useState(1);

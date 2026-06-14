@@ -172,13 +172,13 @@ export default function RootLayout() {
     }
   }, [session, isInitialized, showSplash, segments]);
 
-  if (!isInitialized || showSplash) {
-    return <SplashScreen />;
-  }
-
   useEffect(() => {
     registerBackgroundOptimization();
   }, []);
+
+  if (!isInitialized || showSplash) {
+    return <SplashScreen />;
+  }
 
   return (
     <SafeAreaProvider>

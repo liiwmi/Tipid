@@ -8,9 +8,9 @@ def apply_priority_scaling(items: List[Dict], current_hour: int) -> List[Dict]:
         peak_start = item.get("peak_start")
         peak_end = item.get("peak_end")
 
-        # Boost if current hour falls within peak range
         if peak_start is not None and peak_end is not None:
-            if peak_start <= current_hour <= peak_end:
+            # ✅ Use strict less than for end (consistent with frontend)
+            if peak_start <= current_hour < peak_end:
                 new_item["priority"] = round(new_item["priority"] * 1.5)
         elif peak_start is not None:
             if peak_start == current_hour:
@@ -18,7 +18,6 @@ def apply_priority_scaling(items: List[Dict], current_hour: int) -> List[Dict]:
 
         scaled_items.append(new_item)
     return scaled_items
-
 
 class Node:
     def __init__(self, level: int, profit: float, weight: float, selected_items: List[str]):

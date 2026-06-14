@@ -1,14 +1,15 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Alert, AppState, AppStateStatus } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../lib/supabase';
-import { Appliance } from '../types/appliance';
-import NetInfo from '@react-native-community/netinfo';
-import { useSettings } from '../context/SettingsContext';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import NetInfo from "@react-native-community/netinfo";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, AppState, AppStateStatus } from "react-native";
+import { useSettings } from "../context/SettingsContext";
+import { supabase } from "../lib/supabase";
+import { Appliance } from "../types/appliance";
 
-const APPLIANCES_CACHE_KEY = '@appliances_cache';
-const PENDING_QUEUE_KEY = '@pending_appliances';
-const PENDING_DELETES_KEY = '@pending_deletes';
+const APPLIANCES_CACHE_KEY = "@appliances_cache";
+const PENDING_QUEUE_KEY = "@pending_appliances";
+const PENDING_DELETES_KEY = "@pending_deletes";
+const PENDING_UPDATES_KEY = "@pending_updates";
 
 export function useAppliances() {
   const [appliances, setAppliances] = useState<Appliance[]>([]);
@@ -16,13 +17,18 @@ export function useAppliances() {
   const [isOnline, setIsOnline] = useState(true);
   const { electricityRate, dailyQuota } = useSettings();
 
-  // ─── NETWORK CHECK ───────────────────────────────────────
-    async function checkOnline(): Promise<boolean> {
-      const state = await NetInfo.fetch();
-      return state.isConnected === true && state.isInternetReachable === true;
-    }
+  const appliancesRef = useRef<Appliance[]>([]);
+  useEffect(() => {
+    appliancesRef.current = appliances;
+  }, [appliances]);
 
-  // ─── CACHE ───────────────────────────────────────────────
+  // ─── NETWORK CHECK ──────────────────────────────────────
+  async function checkOnline(): Promise<boolean> {
+    const state = await NetInfo.fetch();
+    return state.isConnected === true && state.isInternetReachable === true;
+  }
+
+  // ─── CACHE ──────────────────────────────────────────────
   async function saveCache(data: Appliance[]) {
     try {
       await AsyncStorage.setItem(APPLIANCES_CACHE_KEY, JSON.stringify(data));
@@ -38,233 +44,326 @@ export function useAppliances() {
     }
   }
 
-  // ─── PENDING QUEUE ───────────────────────────────────────
-  async function getPendingQueue(): Promise<Omit<Appliance, 'id' | 'created_at'>[]> {
+  // ─── PENDING INSERTS ────────────────────────────────────
+  async function getPendingQueue(): Promise<
+    Omit<Appliance, "id" | "created_at">[]
+  > {
     try {
-      const pending = await AsyncStorage.getItem(PENDING_QUEUE_KEY);
-      return pending ? JSON.parse(pending) : [];
+      const val = await AsyncStorage.getItem(PENDING_QUEUE_KEY);
+      return val ? JSON.parse(val) : [];
     } catch (_) {
       return [];
     }
   }
 
-  async function savePendingQueue(queue: Omit<Appliance, 'id' | 'created_at'>[]) {
+  async function savePendingQueue(
+    queue: Omit<Appliance, "id" | "created_at">[],
+  ) {
     await AsyncStorage.setItem(PENDING_QUEUE_KEY, JSON.stringify(queue));
   }
 
-  // ─── SYNC PENDING ────────────────────────────────────────
- async function syncPending() {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-
-  // Sync pending inserts
-  const queue = await getPendingQueue();
-  const failed: Omit<Appliance, 'id' | 'created_at'>[] = [];
-  for (const item of queue) {
-    const { error } = await supabase.from('appliances').insert({
-      ...item,
-      user_id: user.id,
-    });
-    if (error) failed.push(item);
+  // ─── PENDING UPDATES ────────────────────────────────────
+  async function getPendingUpdates(): Promise<
+    { id: string; updates: Partial<Appliance> }[]
+  > {
+    try {
+      const val = await AsyncStorage.getItem(PENDING_UPDATES_KEY);
+      return val ? JSON.parse(val) : [];
+    } catch (_) {
+      return [];
+    }
   }
-  await savePendingQueue(failed);
 
-  // Sync pending deletes
-  const deletes = await getPendingDeletes();
-  const failedDeletes: string[] = [];
-  for (const id of deletes) {
-    const { error } = await supabase.from('appliances').delete().eq('id', id);
-    if (error) failedDeletes.push(id);
+  async function savePendingUpdates(
+    queue: { id: string; updates: Partial<Appliance> }[],
+  ) {
+    await AsyncStorage.setItem(PENDING_UPDATES_KEY, JSON.stringify(queue));
   }
-  await AsyncStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(failedDeletes));
 
-  await fetchFromServer();
-}
+  async function queueUpdate(id: string, updates: Partial<Appliance>) {
+    const pending = await getPendingUpdates();
+    const idx = pending.findIndex((u) => u.id === id);
+    if (idx >= 0) {
+      pending[idx].updates = { ...pending[idx].updates, ...updates };
+    } else {
+      pending.push({ id, updates });
+    }
+    await savePendingUpdates(pending);
+  }
 
-  // ─── FETCH FROM SERVER ───────────────────────────────────
+  // ─── PENDING DELETES ────────────────────────────────────
+  async function getPendingDeletes(): Promise<string[]> {
+    try {
+      const val = await AsyncStorage.getItem(PENDING_DELETES_KEY);
+      return val ? JSON.parse(val) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // ─── FETCH FROM SERVER ──────────────────────────────────
+  // After fetching, apply any pending local updates on top so edits
+  // made offline are never overwritten by a stale server response.
   async function fetchFromServer() {
     const { data, error } = await supabase
-      .from('appliances')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .from("appliances")
+      .select("*")
+      .order("created_at", { ascending: false });
 
     if (error) return;
 
-    setAppliances(data || []);
-    await saveCache(data || []);
+    // Apply any queued local updates on top of server data
+    const pendingUpdates = await getPendingUpdates();
+    const merged = (data || []).map((serverItem) => {
+      const pending = pendingUpdates.find((u) => u.id === serverItem.id);
+      return pending ? { ...serverItem, ...pending.updates } : serverItem;
+    });
+
+    setAppliances(merged);
+    await saveCache(merged);
   }
 
-  // ─── LOAD (cache first, then server) ─────────────────────
-  const loadAppliances = useCallback(async () => {
-    setLoading(true);
+  // ─── SYNC PENDING ───────────────────────────────────────
+  async function syncPending() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
 
-    const cached = await loadCache();
-    if (cached.length > 0) setAppliances(cached);
+    // Inserts
+    const queue = await getPendingQueue();
+    const failedInserts: Omit<Appliance, "id" | "created_at">[] = [];
+    for (const item of queue) {
+      const { data, error } = await supabase
+        .from("appliances")
+        .insert({ ...item, user_id: user.id })
+        .select();
 
-    const online = await checkOnline();
-    setIsOnline(online);
+      if (error || !data || data.length === 0) {
+        failedInserts.push(item);
+      }
+      await savePendingQueue(failedInserts);
 
-    if (online) {
-      await syncPending();
+      // Updates
+      const updates = await getPendingUpdates();
+      const failedUpdates: { id: string; updates: Partial<Appliance> }[] = [];
+      for (const { id, updates: upd } of updates) {
+        const { error } = await supabase
+          .from("appliances")
+          .update(upd)
+          .eq("id", id);
+        if (!error) {
+          // Successfully synced — remove from queue
+        } else {
+          failedUpdates.push({ id, updates: upd });
+        }
+      }
+      await savePendingUpdates(failedUpdates);
+
+      // Deletes
+      const deletes = await getPendingDeletes();
+      const failedDeletes: string[] = [];
+      for (const id of deletes) {
+        const { error } = await supabase
+          .from("appliances")
+          .delete()
+          .eq("id", id);
+        if (error) failedDeletes.push(id);
+      }
+      await AsyncStorage.setItem(
+        PENDING_DELETES_KEY,
+        JSON.stringify(failedDeletes),
+      );
+
       await fetchFromServer();
     }
 
-    setLoading(false);
-  }, []);
+    // ─── LOAD ───────────────────────────────────────────────
+    const loadAppliances = useCallback(async () => {
+      setLoading(true);
 
-  // ─── APP STATE LISTENER (sync when app comes to foreground) ──
-  useEffect(() => {
-    loadAppliances();
+      // 1. Show cache immediately (with pending updates already merged in)
+      const cached = await loadCache();
+      if (cached.length > 0) setAppliances(cached);
 
-    const subscription = AppState.addEventListener(
-      'change',
-      async (state: AppStateStatus) => {
-        if (state === 'active') {
-          const online = await checkOnline();
-          setIsOnline(online);
-          if (online) {
-            await syncPending();
-            await fetchFromServer();
-          }
-        }
+      const online = await checkOnline();
+      setIsOnline(online);
+
+      if (online) {
+        await syncPending();
+        // fetchFromServer is called inside syncPending
       }
+
+      setLoading(false);
+    }, []);
+
+    useEffect(() => {
+      loadAppliances();
+
+      const sub = AppState.addEventListener(
+        "change",
+        async (state: AppStateStatus) => {
+          if (state === "active") {
+            const online = await checkOnline();
+            setIsOnline(online);
+            if (online) await syncPending();
+          }
+        },
+      );
+
+      return () => sub.remove();
+    }, []);
+
+    // ─── UPDATE ─────────────────────────────────────────────
+    const updateAppliance = useCallback(
+      async (id: string, updates: Partial<Appliance>): Promise<void> => {
+        // 1. Update local state immediately using ref to avoid stale closure
+        const current = appliancesRef.current;
+        const updated = current.map((a) =>
+          a.id === id ? { ...a, ...updates } : a,
+        );
+        setAppliances(updated);
+
+        // 2. Persist to cache immediately so reload shows correct data
+        await saveCache(updated);
+
+        // 3. Skip Supabase for temp offline items
+        if (id.startsWith("temp_")) {
+          await queueUpdate(id, updates);
+          return;
+        }
+
+        const online = await checkOnline();
+        if (online) {
+          const { error } = await supabase
+            .from("appliances")
+            .update(updates)
+            .eq("id", id);
+
+          if (error) {
+            // Supabase failed — queue for later sync
+            await queueUpdate(id, updates);
+          }
+          // On success: cache already has correct data, no need to re-fetch
+        } else {
+          // Offline — queue for later sync
+          await queueUpdate(id, updates);
+        }
+      },
+      [],
     );
 
-    return () => subscription.remove();
-  }, []);
-  async function updateAppliance(id: string, updates: Partial<Appliance>) {
-  const updated = appliances.map((a) =>
-    a.id === id ? { ...a, ...updates } : a
-  );
-  setAppliances(updated);
-  await saveCache(updated);
+    // ─── TOGGLE ACTIVE ──────────────────────────────────────
+    const toggleActive = useCallback(
+      async (id: string) => {
+        const appliance = appliancesRef.current.find((a) => a.id === id);
+        if (!appliance) return;
+        await updateAppliance(id, { is_active: !appliance.is_active });
+      },
+      [updateAppliance],
+    );
 
-  const online = await checkOnline();
-  if (online && !id.startsWith("temp_")) {
-    await supabase.from("appliances").update(updates).eq("id", id);
-  }
-} 
+    // ─── ADD ────────────────────────────────────────────────
+    async function addAppliance(
+      appliance: Omit<Appliance, "id" | "created_at" | "user_id">,
+    ) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return Alert.alert("Error", "Not authenticated.");
 
-  // ─── ADD APPLIANCE ────────────────────────────────────────
-  async function addAppliance(appliance: Omit<Appliance, 'id' | 'created_at' | 'user_id'>) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return Alert.alert('Error', 'Not authenticated.');
+      const online = await checkOnline();
+      setIsOnline(online);
 
-    const online = await checkOnline();
-    setIsOnline(online);
+      if (online) {
+        const { error } = await supabase
+          .from("appliances")
+          .insert({ ...appliance, user_id: user.id });
+        if (error) {
+          Alert.alert("Error", error.message);
+          return;
+        }
+        await fetchFromServer();
+      } else {
+        const queue = await getPendingQueue();
+        queue.push({ ...appliance, user_id: user.id });
+        await savePendingQueue(queue);
 
-    if (online) {
-      const { error } = await supabase.from('appliances').insert({
-        ...appliance,
-        user_id: user.id,
-      });
-      if (error) { Alert.alert('Error', error.message); return; }
-      await fetchFromServer();
-    } else {
-      // save to pending queue
-      const queue = await getPendingQueue();
-      queue.push({ ...appliance, user_id: user.id });
-      await savePendingQueue(queue);
+        const temp: Appliance = {
+          ...appliance,
+          id: `temp_${Date.now()}`,
+          user_id: user.id,
+          created_at: new Date().toISOString(),
+        };
+        const updated = [temp, ...appliancesRef.current];
+        setAppliances(updated);
+        await saveCache(updated);
 
-      // optimistically update local state
-      const tempAppliance: Appliance = {
-        ...appliance,
-        id: `temp_${Date.now()}`,
-        user_id: user.id,
-        created_at: new Date().toISOString(),
-      };
-      const updated = [tempAppliance, ...appliances];
+        Alert.alert(
+          "Saved Offline",
+          "This appliance will sync when you are back online.",
+        );
+      }
+    }
+
+    // ─── DELETE ─────────────────────────────────────────────
+    async function deleteAppliance(id: string) {
+      const updated = appliancesRef.current.filter((a) => a.id !== id);
       setAppliances(updated);
       await saveCache(updated);
 
-      Alert.alert(
-        'Saved Offline',
-        'This appliance will sync automatically when you are back online.'
-      );
+      if (id.startsWith("temp_")) {
+        const queue = await getPendingQueue();
+        const tempIndex = appliancesRef.current.findIndex((a) => a.id === id);
+        if (tempIndex >= 0) {
+          queue.splice(tempIndex, 1);
+          await savePendingQueue(queue);
+        }
+        return;
+      }
+
+      const online = await checkOnline();
+      if (online) {
+        await supabase.from("appliances").delete().eq("id", id);
+      } else {
+        const deletes = await getPendingDeletes();
+        deletes.push(id);
+        await AsyncStorage.setItem(
+          PENDING_DELETES_KEY,
+          JSON.stringify(deletes),
+        );
+      }
     }
+
+    // ─── COMPUTED ───────────────────────────────────────────
+    const activeAppliances = appliances.filter((a) => a.is_active);
+
+    const totalDailyKwh = appliances.reduce(
+      (total, a) => total + (a.watts * a.hours_per_day) / 1000,
+      0,
+    );
+
+    const totalDailyCost = appliances.reduce(
+      (total, a) =>
+        total + ((a.watts * a.hours_per_day) / 1000) * electricityRate,
+      0,
+    );
+
+    const progressWidth = Math.min((totalDailyKwh / dailyQuota) * 100, 100);
+
+    return {
+      appliances,
+      activeAppliances,
+      loading,
+      isOnline,
+      totalDailyKwh,
+      totalDailyCost,
+      progressWidth,
+      addAppliance,
+      updateAppliance,
+      deleteAppliance,
+      toggleActive,
+      refresh: loadAppliances,
+    };
   }
-
-  // ─── DELETE APPLIANCE ─────────────────────────────────────
-
-async function getPendingDeletes(): Promise<string[]> {
-  try {
-    const val = await AsyncStorage.getItem(PENDING_DELETES_KEY);
-    return val ? JSON.parse(val) : [];
-  } catch { return []; }
-}
-
-async function deleteAppliance(id: string) {
-  // Remove from local state immediately
-  const updated = appliances.filter((a) => a.id !== id);
-  setAppliances(updated);
-  await saveCache(updated);
-
-  // If temp (offline-created), just remove from pending queue too
-  if (id.startsWith('temp_')) {
-    const queue = await getPendingQueue();
-    const filtered = queue.filter((_, i) => `temp_${i}` !== id);
-    await savePendingQueue(filtered);
-    return;
-  }
-
-  const online = await checkOnline();
-  if (online) {
-    await supabase.from('appliances').delete().eq('id', id);
-  } else {
-    // Queue the delete for later
-    const deletes = await getPendingDeletes();
-    deletes.push(id);
-    await AsyncStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(deletes));
-  }
-}
-
-// ─── TOGGLE ACTIVE ────────────────────────────────────────
-async function toggleActive(id: string) {
-  const appliance = appliances.find((a) => a.id === id);
-  if (!appliance) return;
-
-  const updated = appliances.map((a) =>
-    a.id === id ? { ...a, is_active: !a.is_active } : a
-  );
-  setAppliances(updated);
-  await saveCache(updated);
-
-  const online = await checkOnline();
-  if (online && !id.startsWith('temp_')) {
-    await supabase
-      .from('appliances')
-      .update({ is_active: !appliance.is_active })
-      .eq('id', id);
-  }
-}
-
-  // ─── COMPUTED VALUES ─────────────────────────────────────
-  const activeAppliances = appliances.filter((a) => a.is_active);
-
- const calculateItemCost = (watts: number, hours: number) =>
-  ((watts * hours) / 1000) * electricityRate;
-
-const totalDailyKwh = appliances.reduce(
-  (total, item) => total + (item.watts * item.hours_per_day) / 1000, 0
-);
-
-const totalDailyCost = appliances.reduce(
-  (total, item) => total + calculateItemCost(item.watts, item.hours_per_day), 0
-);
-
-const progressWidth = Math.min((totalDailyKwh / dailyQuota) * 100, 100);
-  return {
-    appliances,
-    activeAppliances,
-    loading,
-    isOnline,
-    totalDailyKwh,
-    totalDailyCost,
-    progressWidth,
-    addAppliance,
-    updateAppliance,
-    deleteAppliance,
-    toggleActive,
-    refresh: loadAppliances,
-  };
 }

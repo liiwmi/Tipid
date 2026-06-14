@@ -18,7 +18,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { FontSize, useSettings } from "../../context/SettingsContext";
 import { useTheme } from "../../context/ThemeContext";
-import { useProfile } from "../../hooks/useProfile";
+import { useProfileContext } from "../../context/ProfileContext";
 import { supabase } from "../../lib/supabase";
 import {
   borderRadius,
@@ -197,7 +197,7 @@ export default function SettingsScreen() {
     { backgroundColor: colors.bgCard, borderColor: colors.borderDefault },
   ];
   const rowBorder = { borderBottomColor: colors.borderDefault };
-  const { profile } = useProfile();
+  const { profile } = useProfileContext();
   const initials = profile.displayName
     ? profile.displayName
         .split(" ")

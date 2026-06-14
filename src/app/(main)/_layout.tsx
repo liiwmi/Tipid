@@ -46,6 +46,13 @@ export default function MainLayout() {
           drawerIcon: ({ color }) => <Ionicons name="person-outline" size={24} color={color} />,
         }}
       />
+      <Drawer.Screen
+        name="report"
+        options={{
+          drawerLabel: 'Algorithm Report',
+          drawerIcon: ({ color }) => <Ionicons name="bar-chart-outline" size={24} color={color} />,
+        }}
+      />
       </Drawer>
     </GestureHandlerRootView>
   );

@@ -8,7 +8,7 @@ function getTodayKey() {
 }
 
 function getLast7Keys(): { key: string; day: string; date: string }[] {
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const result = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date();

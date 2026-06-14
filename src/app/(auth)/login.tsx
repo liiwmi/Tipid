@@ -1,22 +1,21 @@
 // src/app/(auth)/login.tsx
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
   Text,
   TextInput,
   TouchableOpacity,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
+  View,
 } from "react-native";
-import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useTheme } from "../../context/ThemeContext";
 import { supabase } from "../../lib/supabase";
 import { globalStyles as styles } from "../../styles/styles";
-import Logo from "../../components/Logo"; // NEW: Importing the SVG logo as a component
-import { useTheme } from '../../context/ThemeContext';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -24,51 +23,51 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [authError, setAuthError] = useState(""); // NEW: Tracks login errors
+  const [authError, setAuthError] = useState("");
   const { colors } = useTheme();
 
   async function signInWithEmail() {
-    setAuthError(""); // Clear previous errors
-
+    setAuthError("");
     if (!email || !password) {
       setAuthError("Please enter both fields");
       return;
     }
-
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
-
     if (error) {
-      // If Supabase says invalid credentials, show "Wrong password" just like your image
       setAuthError(
         error.message.includes("Invalid login")
           ? "Wrong password"
           : error.message,
       );
     }
-
     setLoading(false);
   }
 
   return (
-    <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
+    <SafeAreaView
+      edges={["top", "bottom", "left", "right"]}
+      style={[styles.container, { backgroundColor: colors.bgPrimary }]}
+    >
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.header}>
-          <View style={styles.titleRow}>
-            <Logo width={60} height={60} />
-            <Text style={[styles.title, { marginTop: 16, color: colors.textPrimary }]}>Tipid</Text>
-          </View>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Welcome back. Ready to save?</Text>
+          <Image
+            source={require("../../../assets/tipid-logo-w-title.png")}
+            style={{ width: 180, height: 80 }}
+            resizeMode="contain"
+          />
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            Welcome back. Ready to save?
+          </Text>
         </View>
 
         <View style={styles.formContainer}>
-          {/* Email Field with Label */}
           <Text style={styles.inputLabel}>Email</Text>
           <TextInput
             style={styles.input}
@@ -77,29 +76,32 @@ export default function LoginScreen() {
             value={email}
             onChangeText={(text) => {
               setEmail(text);
-              setAuthError(""); // Clear error when user types
+              setAuthError("");
             }}
             autoCapitalize="none"
             keyboardType="email-address"
             editable={!loading}
           />
 
-          {/* Password Field with Label & Dynamic Error Border */}
           <Text style={styles.inputLabel}>Password</Text>
           <View
             style={[
               styles.passwordContainer,
+              {
+                borderColor: colors.borderSecondary,
+                backgroundColor: colors.bgInput,
+              },
               authError ? styles.inputErrorBorder : null,
             ]}
           >
             <TextInput
-              style={styles.passwordInput}
+              style={[styles.passwordInput, { color: colors.textPrimary }]}
               placeholder="Password"
               placeholderTextColor="#95a5a6"
               value={password}
               onChangeText={(text) => {
                 setPassword(text);
-                setAuthError(""); // Clear error when user types
+                setAuthError("");
               }}
               secureTextEntry={!showPassword}
               editable={!loading}
@@ -116,9 +118,15 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* New Footer Layout matching your image */}
           <View style={styles.passwordFooter}>
-            <Text style={[styles.forgotPasswordText, { color: colors.forgotPasswordText }]}>{authError}</Text>
+            <Text
+              style={[
+                styles.forgotPasswordText,
+                { color: colors.forgotPasswordText },
+              ]}
+            >
+              {authError}
+            </Text>
             <TouchableOpacity
               onPress={() => router.push("/(auth)/forgot-password")}
             >
@@ -130,8 +138,8 @@ export default function LoginScreen() {
             style={[
               styles.button,
               styles.primaryButton,
+              { backgroundColor: colors.primary, marginTop: 10 },
               loading && styles.disabledButton,
-              { marginTop: 10 },
             ]}
             onPress={signInWithEmail}
             disabled={loading}
@@ -139,7 +147,9 @@ export default function LoginScreen() {
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.buttonText}>Sign In</Text>
+              <Text style={[styles.buttonText, { color: colors.textOnDark }]}>
+                Sign In
+              </Text>
             )}
           </TouchableOpacity>
 
@@ -147,12 +157,20 @@ export default function LoginScreen() {
             style={[
               styles.button,
               styles.secondaryButton,
+              { borderColor: colors.borderSecondary },
               loading && styles.disabledButton,
             ]}
             onPress={() => router.push("/(auth)/signup")}
             disabled={loading}
           >
-            <Text style={styles.secondaryButtonText}>Create Account</Text>
+            <Text
+              style={[
+                styles.secondaryButtonText,
+                { color: colors.textPrimary },
+              ]}
+            >
+              Create Account
+            </Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>

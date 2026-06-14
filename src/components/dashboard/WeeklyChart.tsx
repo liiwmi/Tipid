@@ -12,23 +12,31 @@ interface Props {
   data: DayUsage[];
 }
 
+function getLast7Days(): { day: string; isToday: boolean }[] {
+  const days = ["S", "M", "T", "W", "T", "F", "S"];
+  const today = new Date().toISOString().split("T")[0];
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return {
+      day: days[d.getDay()],
+      isToday: d.toISOString().split("T")[0] === today,
+    };
+  });
+}
+
 export default function WeeklyChart({ data }: Props) {
   const { dailyQuota } = useSettings();
   const { colors } = useTheme();
 
-  const maxValue = Math.max(...data.map((d) => d.value), dailyQuota);
-  const thresholdPct = (dailyQuota / maxValue) * 100;
-
-  const totalWeekKwh = data.reduce((sum, d) => sum + d.value, 0);
-
   const isEmpty = data.length === 0;
-  const displayData = isEmpty
-    ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => ({
-        day,
-        value: 0,
-        isToday: false,
-      }))
+  const displayData: DayUsage[] = isEmpty
+    ? getLast7Days().map((d) => ({ ...d, value: 0 }))
     : data;
+
+  const maxValue = Math.max(...displayData.map((d) => d.value), dailyQuota);
+  const thresholdPct = (dailyQuota / maxValue) * 100;
+  const totalWeekKwh = displayData.reduce((sum, d) => sum + d.value, 0);
 
   return (
     <View style={s.container}>
@@ -40,8 +48,7 @@ export default function WeeklyChart({ data }: Props) {
         <Text style={[s.value, { color: colors.textPrimary }]}>
           {totalWeekKwh.toFixed(1)}
           <Text style={[s.valueUnit, { color: colors.textSecondary }]}>
-            {" "}
-            kWh
+            {" "}kWh
           </Text>
         </Text>
       </View>
@@ -78,12 +85,9 @@ export default function WeeklyChart({ data }: Props) {
             const barColors: [string, string, string] = d.isToday
               ? ["#ffea9d", "#f68d50", "#f86014"]
               : isOver
-                ? ["#f860144a", "#ff9a4d", "#e05a00"]
-                : [
-                    "rgba(252,93,0,0.3)",
-                    "rgba(252,93,0,0.15)",
-                    "rgba(252,93,0,0.05)",
-                  ];
+              ? ["#c0c0c0", "#a0a0a0", "#808080"]
+              : ["#e0e0e0", "#cccccc", "#b8b8b8"];
+
             return (
               <View key={i} style={s.barWrap}>
                 <View style={[s.barOuter, { height: CHART_HEIGHT }]}>
@@ -91,13 +95,16 @@ export default function WeeklyChart({ data }: Props) {
                     colors={barColors}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 0, y: 1 }}
-                    style={[s.barInner, { height: `${heightPct}%` }]}
+                    style={[
+                      s.barInner,
+                      { height: (heightPct / 100) * CHART_HEIGHT },
+                    ]}
                   />
                 </View>
                 <Text
                   style={[
                     s.dayLabel,
-                    { color: colors.textSecondary },
+                    { color: d.isToday ? "#fc5d00" : colors.textSecondary },
                     d.isToday && s.dayLabelToday,
                   ]}
                 >
@@ -113,8 +120,8 @@ export default function WeeklyChart({ data }: Props) {
       <View style={s.legend}>
         {[
           { color: "#fc5d00", label: "Today" },
-          { color: "#e05a00", label: "Over quota" },
-          { color: "rgba(252,93,0,0.4)", label: "Under quota" },
+          { color: "#a0a0a0", label: "Over quota" },
+          { color: "#cccccc", label: "Under quota" },
         ].map((item) => (
           <View key={item.label} style={s.legendItem}>
             <View style={[s.legendDot, { backgroundColor: item.color }]} />
@@ -179,7 +186,7 @@ const s = StyleSheet.create({
   barsRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: 6,
+    gap: 3,
     height: CHART_HEIGHT + 20,
     paddingTop: 10,
   },
@@ -193,12 +200,12 @@ const s = StyleSheet.create({
   barOuter: {
     width: "100%",
     justifyContent: "flex-end",
-    borderRadius: 6,
+    borderRadius: 4,
     overflow: "hidden",
   },
   barInner: {
     width: "100%",
-    borderRadius: 6,
+    borderRadius: 4,
   },
   dayLabel: {
     fontSize: fontSizes.xs,

@@ -158,7 +158,8 @@ export const globalStyles = StyleSheet.create({
     fontWeight: fontWeights.bold,
     letterSpacing: 0.5,
   },
-  primaryButton: {},
+  primaryButton: {
+  },
   secondaryButton: {
     borderWidth: 1,
   },

@@ -1,25 +1,31 @@
 // src/app/_layout.tsx
 import { Stack, useRouter, useSegments } from "expo-router";
-import { useEffect, useState } from "react";
-import { View, ActivityIndicator, AppState, AppStateStatus } from "react-native";
+import { useEffect, useState, useRef } from "react";
+import {
+  ActivityIndicator,
+  Animated,
+  AppState,
+  AppStateStatus,
+  Easing,
+  Image,
+} from "react-native";
 import { supabase } from "../lib/supabase";
 import { Session } from "@supabase/supabase-js";
-import { lightColors as colors } from "../styles/theme";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ThemeProvider } from "../context/ThemeContext";
 import { AppProvider } from "../context/AppContext";
 import { SettingsProvider, useSettings } from "../context/SettingsContext";
 import { checkAndFireNotifications } from "../services/notificationService";
 import { useAppliances } from "../hooks/useAppliance";
+import * as ExpoSplashScreen from 'expo-splash-screen';
 
+ExpoSplashScreen.preventAutoHideAsync();
 // ─── NOTIFICATION CONTROLLER ─────────────────────────────────
-// Invisible component — runs inside providers so it can access context
 function NotificationController() {
   const { appliances, totalDailyKwh, loading } = useAppliances();
   const { dailyQuota, notifQuota, notifPeak } = useSettings();
 
   useEffect(() => {
-    // Don't fire while data is still loading
     if (loading || appliances.length === 0) return;
 
     checkAndFireNotifications(
@@ -40,6 +46,69 @@ function NotificationController() {
   return null;
 }
 
+// ─── SPLASH SCREEN ───────────────────────────────────────────
+function SplashScreen() {
+  const slideAnim = useRef(new Animated.Value(400)).current;
+  const bgAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 400,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(bgAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, []);
+
+  const bgColor = bgAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#ffffff', '#adcf12'],
+  });
+
+  return (
+    <Animated.View
+      style={{
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: bgColor,
+        gap: 16,
+      }}
+    >
+      <Animated.Image
+    source={require('../../assets/tipid-logo.png')}
+    style={{
+      width: 100,
+      height: 100,
+      resizeMode: 'contain',
+      transform: [{ translateX: slideAnim }],
+    }}
+  />
+  <Animated.Image
+    source={require('../../assets/tipid-title.png')}
+    style={{
+      width: 200,
+      height: 60,
+      resizeMode: 'contain',
+      transform: [{ translateX: slideAnim }],
+    }}
+/>
+      <ActivityIndicator
+        size="small"
+        color="#5a7a00"
+        style={{ marginTop: 24 }}
+      />
+    </Animated.View>
+  );
+}
+
 // ─── ROOT LAYOUT ─────────────────────────────────────────────
 export default function RootLayout() {
   const [session, setSession] = useState<Session | null>(null);
@@ -47,12 +116,12 @@ export default function RootLayout() {
   const segments = useSegments();
   const router = useRouter();
 
-  // ── AUTH STATE ──────────────────────────────────────────
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setIsInitialized(true);
-    });
+   supabase.auth.getSession().then(({ data: { session } }) => {
+  setSession(session);
+  setIsInitialized(true);
+  ExpoSplashScreen.hideAsync(); 
+  });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => setSession(session)
@@ -61,7 +130,6 @@ export default function RootLayout() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── ROUTING GUARD ───────────────────────────────────────
   useEffect(() => {
     if (!isInitialized) return;
     const inAuthGroup = segments[0] === "(auth)";
@@ -72,18 +140,8 @@ export default function RootLayout() {
     }
   }, [session, isInitialized, segments]);
 
-  // ── LOADING SCREEN ──────────────────────────────────────
   if (!isInitialized) {
-    return (
-      <View style={{
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        backgroundColor: colors.bgPrimary,
-      }}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
+    return <SplashScreen />;
   }
 
   return (

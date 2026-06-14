@@ -1,15 +1,26 @@
-import React, { useState } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  View, Text, ScrollView, TouchableOpacity,
-  TextInput, StyleSheet, ActivityIndicator,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '../../context/ThemeContext';
-import { useAppliances } from '../../hooks/useAppliance';
-import { useSettings } from '../../context/SettingsContext';
-import { runOptimization } from '../../services/optimizer';
-import { fontSizes, fontWeights, spacing, borderRadius } from '../../styles/theme';
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useSettings } from "../../context/SettingsContext";
+import { useTheme } from "../../context/ThemeContext";
+import { useAppliances } from "../../hooks/useAppliance";
+import { runOptimization } from "../../services/optimizer";
+import {
+  borderRadius,
+  fontSizes,
+  fontWeights,
+  spacing,
+} from "../../styles/theme";
 
 interface OptimizationResult {
   turn_on: string[];
@@ -21,57 +32,135 @@ export default function ReportScreen() {
   const { appliances, totalDailyKwh, totalDailyCost } = useAppliances();
   const { electricityRate, dailyQuota } = useSettings();
 
-  const [budget, setBudget] = useState(String((dailyQuota * electricityRate).toFixed(2)));
+  const [budget, setBudget] = useState(
+    String((dailyQuota * electricityRate).toFixed(2)),
+  );
   const [result, setResult] = useState<OptimizationResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasRun, setHasRun] = useState(false);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
 
-  const handleOptimize = () => {
-    setLoading(true);
-    setTimeout(() => {
-      const currentHour = new Date().getHours();
-      const res = runOptimization(
-        appliances,
-        parseFloat(budget) || dailyQuota * electricityRate,
-        electricityRate,
-        currentHour,
+  // ── LOAD CACHED RESULT ────────────────────────────────────
+  useEffect(() => {
+    const loadCachedResult = async () => {
+      try {
+        const cached = await AsyncStorage.getItem("@last_optimization_result");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          setResult(parsed);
+          setHasRun(true);
+          setLastRun(new Date(parsed.timestamp));
+        }
+      } catch (_) {}
+    };
+    loadCachedResult();
+  }, []);
+
+  // ── RUN OPTIMIZATION ─────────────────────────────────────
+  const runOptimizationAuto = useCallback(
+    async (isAuto = false) => {
+      setLoading(true);
+      setTimeout(
+        async () => {
+          const currentHour = new Date().getHours();
+          const res = runOptimization(
+            appliances,
+            parseFloat(budget) || dailyQuota * electricityRate,
+            electricityRate,
+            currentHour,
+          );
+          const now = new Date();
+          const withTimestamp = { ...res, timestamp: now.toISOString() };
+          await AsyncStorage.setItem(
+            "@last_optimization_result",
+            JSON.stringify(withTimestamp),
+          );
+          setResult(res);
+          setHasRun(true);
+          setLastRun(now);
+          setLoading(false);
+        },
+        isAuto ? 0 : 800,
       );
-      setResult(res);
-      setHasRun(true);
-      setLoading(false);
-    }, 800); // slight delay for UX
-  };
+    },
+    [appliances, budget, dailyQuota, electricityRate],
+  );
+
+  const handleOptimize = () => runOptimizationAuto(false);
+
+  // ── AUTO RE-RUN EVERY HOUR ────────────────────────────────
+  useEffect(() => {
+    if (!hasRun) return;
+
+    const now = new Date();
+    const msUntilNextHour =
+      (60 - now.getMinutes()) * 60 * 1000 - now.getSeconds() * 1000;
+
+    const timeout = setTimeout(() => {
+      runOptimizationAuto(true);
+      const interval = setInterval(
+        () => {
+          runOptimizationAuto(true);
+        },
+        60 * 60 * 1000,
+      );
+      return () => clearInterval(interval);
+    }, msUntilNextHour);
+
+    return () => clearTimeout(timeout);
+  }, [hasRun, runOptimizationAuto]);
 
   // ── COMPUTED ──────────────────────────────────────────────
   const optimizedAppliances = appliances.filter((a) =>
-    result?.turn_on.includes(a.name)
+    result?.turn_on.includes(a.name),
   );
   const prunedAppliances = appliances.filter(
-    (a) => a.is_active && !result?.turn_on.includes(a.name)
+    (a) => a.is_active && !result?.turn_on.includes(a.name),
   );
 
   const optimizedKwh = optimizedAppliances.reduce(
-    (sum, a) => sum + (a.watts * a.hours_per_day) / 1000, 0
+    (sum, a) => sum + (a.watts * a.hours_per_day) / 1000,
+    0,
   );
   const optimizedCost = optimizedKwh * electricityRate;
   const costSavings = totalDailyCost - optimizedCost;
-
   const maxBar = Math.max(totalDailyKwh, optimizedKwh, dailyQuota);
 
-  const cardStyle = [s.card, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }];
+  const cardStyle = [
+    s.card,
+    { backgroundColor: colors.bgCard, borderColor: colors.borderDefault },
+  ];
 
   return (
-    <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={[s.safe, { backgroundColor: colors.bgSecondary }]}>
-      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-
+    <SafeAreaView
+      edges={["top", "bottom", "left", "right"]}
+      style={[s.safe, { backgroundColor: colors.bgSecondary }]}
+    >
+      <ScrollView
+        contentContainerStyle={s.scroll}
+        showsVerticalScrollIndicator={false}
+      >
         {/* HEADER */}
-        <Text style={[s.pageTitle, { color: colors.textPrimary }]}>Algorithm Report</Text>
+        <Text style={[s.pageTitle, { color: colors.textPrimary }]}>
+          Algorithm Report
+        </Text>
         <Text style={[s.pageSub, { color: colors.textSecondary }]}>
           Branch and Bound Knapsack Optimization
         </Text>
+        {lastRun && (
+          <Text style={[s.pageSub, { color: colors.textSecondary }]}>
+            Last updated:{" "}
+            {lastRun.toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </Text>
+        )}
 
         {/* BUDGET INPUT */}
-        <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>BUDGET</Text>
+        <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+          BUDGET
+        </Text>
         <View style={cardStyle}>
           <View style={s.budgetRow}>
             <Ionicons name="wallet-outline" size={20} color={colors.primary} />
@@ -79,11 +168,14 @@ export default function ReportScreen() {
               Daily Budget (₱)
             </Text>
             <TextInput
-              style={[s.budgetInput, {
-                color: colors.textPrimary,
-                borderColor: colors.primary,
-                backgroundColor: colors.bgInput,
-              }]}
+              style={[
+                s.budgetInput,
+                {
+                  color: colors.textPrimary,
+                  borderColor: colors.primary,
+                  backgroundColor: colors.bgInput,
+                },
+              ]}
               value={budget}
               onChangeText={setBudget}
               keyboardType="decimal-pad"
@@ -94,7 +186,11 @@ export default function ReportScreen() {
 
         {/* RUN BUTTON */}
         <TouchableOpacity
-          style={[s.runBtn, { backgroundColor: colors.primary }, loading && { opacity: 0.7 }]}
+          style={[
+            s.runBtn,
+            { backgroundColor: colors.primary },
+            loading && { opacity: 0.7 },
+          ]}
           onPress={handleOptimize}
           disabled={loading}
         >
@@ -109,28 +205,40 @@ export default function ReportScreen() {
         </TouchableOpacity>
 
         {/* CURRENT STATE */}
-        <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>CURRENT STATE</Text>
+        <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+          CURRENT STATE
+        </Text>
         <View style={cardStyle}>
           <View style={s.statRow}>
             <View style={s.statItem}>
               <Text style={[s.statValue, { color: colors.textPrimary }]}>
                 {totalDailyKwh.toFixed(2)}
               </Text>
-              <Text style={[s.statLabel, { color: colors.textSecondary }]}>kWh / day</Text>
+              <Text style={[s.statLabel, { color: colors.textSecondary }]}>
+                kWh / day
+              </Text>
             </View>
-            <View style={[s.statDivider, { backgroundColor: colors.borderDefault }]} />
+            <View
+              style={[s.statDivider, { backgroundColor: colors.borderDefault }]}
+            />
             <View style={s.statItem}>
               <Text style={[s.statValue, { color: colors.textPrimary }]}>
                 ₱{totalDailyCost.toFixed(2)}
               </Text>
-              <Text style={[s.statLabel, { color: colors.textSecondary }]}>est. cost</Text>
+              <Text style={[s.statLabel, { color: colors.textSecondary }]}>
+                est. cost
+              </Text>
             </View>
-            <View style={[s.statDivider, { backgroundColor: colors.borderDefault }]} />
+            <View
+              style={[s.statDivider, { backgroundColor: colors.borderDefault }]}
+            />
             <View style={s.statItem}>
               <Text style={[s.statValue, { color: colors.textPrimary }]}>
-                {appliances.filter(a => a.is_active).length}
+                {appliances.filter((a) => a.is_active).length}
               </Text>
-              <Text style={[s.statLabel, { color: colors.textSecondary }]}>active</Text>
+              <Text style={[s.statLabel, { color: colors.textSecondary }]}>
+                active
+              </Text>
             </View>
           </View>
         </View>
@@ -139,105 +247,150 @@ export default function ReportScreen() {
         {hasRun && result && (
           <>
             {/* BAR CHART */}
-            <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>USAGE COMPARISON</Text>
+            <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+              USAGE COMPARISON
+            </Text>
             <View style={cardStyle}>
               <View style={s.barChart}>
-                {/* Current */}
                 <View style={s.barGroup}>
-                  <Text style={[s.barChartValue, { color: colors.textPrimary }]}>
+                  <Text
+                    style={[s.barChartValue, { color: colors.textPrimary }]}
+                  >
                     {totalDailyKwh.toFixed(1)} kWh
                   </Text>
                   <View style={s.barTrack}>
-                    <View style={[
-                      s.barFill,
-                      {
-                        height: `${Math.min((totalDailyKwh / maxBar) * 100, 100)}%`,
-                        backgroundColor: colors.priorityHighText,
-                      }
-                    ]} />
+                    <View
+                      style={[
+                        s.barFill,
+                        {
+                          height: `${Math.min((totalDailyKwh / maxBar) * 100, 100)}%`,
+                          backgroundColor: colors.priorityHighText,
+                        },
+                      ]}
+                    />
                   </View>
-                  <Text style={[s.barChartLabel, { color: colors.textSecondary }]}>Current</Text>
+                  <Text
+                    style={[s.barChartLabel, { color: colors.textSecondary }]}
+                  >
+                    Current
+                  </Text>
                 </View>
-
-                {/* Optimized */}
                 <View style={s.barGroup}>
-                  <Text style={[s.barChartValue, { color: colors.textPrimary }]}>
+                  <Text
+                    style={[s.barChartValue, { color: colors.textPrimary }]}
+                  >
                     {optimizedKwh.toFixed(1)} kWh
                   </Text>
                   <View style={s.barTrack}>
-                    <View style={[
-                      s.barFill,
-                      {
-                        height: `${Math.min((optimizedKwh / maxBar) * 100, 100)}%`,
-                        backgroundColor: colors.secondary,
-                      }
-                    ]} />
+                    <View
+                      style={[
+                        s.barFill,
+                        {
+                          height: `${Math.min((optimizedKwh / maxBar) * 100, 100)}%`,
+                          backgroundColor: colors.secondary,
+                        },
+                      ]}
+                    />
                   </View>
-                  <Text style={[s.barChartLabel, { color: colors.textSecondary }]}>Optimized</Text>
+                  <Text
+                    style={[s.barChartLabel, { color: colors.textSecondary }]}
+                  >
+                    Optimized
+                  </Text>
                 </View>
-
-                {/* Quota */}
                 <View style={s.barGroup}>
-                  <Text style={[s.barChartValue, { color: colors.textPrimary }]}>
+                  <Text
+                    style={[s.barChartValue, { color: colors.textPrimary }]}
+                  >
                     {dailyQuota.toFixed(1)} kWh
                   </Text>
                   <View style={s.barTrack}>
-                    <View style={[
-                      s.barFill,
-                      {
-                        height: `${Math.min((dailyQuota / maxBar) * 100, 100)}%`,
-                        backgroundColor: colors.primary,
-                      }
-                    ]} />
+                    <View
+                      style={[
+                        s.barFill,
+                        {
+                          height: `${Math.min((dailyQuota / maxBar) * 100, 100)}%`,
+                          backgroundColor: colors.primary,
+                        },
+                      ]}
+                    />
                   </View>
-                  <Text style={[s.barChartLabel, { color: colors.textSecondary }]}>Quota</Text>
+                  <Text
+                    style={[s.barChartLabel, { color: colors.textSecondary }]}
+                  >
+                    Quota
+                  </Text>
                 </View>
               </View>
-
-              {/* LEGEND */}
               <View style={s.legend}>
                 {[
-                  { color: colors.priorityHighText, label: 'Current' },
-                  { color: colors.secondary, label: 'Optimized' },
-                  { color: colors.primary, label: 'Quota' },
+                  { color: colors.priorityHighText, label: "Current" },
+                  { color: colors.secondary, label: "Optimized" },
+                  { color: colors.primary, label: "Quota" },
                 ].map((item) => (
                   <View key={item.label} style={s.legendItem}>
-                    <View style={[s.legendDot, { backgroundColor: item.color }]} />
-                    <Text style={[s.legendText, { color: colors.textSecondary }]}>{item.label}</Text>
+                    <View
+                      style={[s.legendDot, { backgroundColor: item.color }]}
+                    />
+                    <Text
+                      style={[s.legendText, { color: colors.textSecondary }]}
+                    >
+                      {item.label}
+                    </Text>
                   </View>
                 ))}
               </View>
             </View>
 
             {/* SAVINGS SUMMARY */}
-            <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>OPTIMIZATION RESULT</Text>
+            <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+              OPTIMIZATION RESULT
+            </Text>
             <View style={cardStyle}>
               <View style={s.statRow}>
                 <View style={s.statItem}>
                   <Text style={[s.statValue, { color: colors.secondary }]}>
                     ₱{costSavings.toFixed(2)}
                   </Text>
-                  <Text style={[s.statLabel, { color: colors.textSecondary }]}>saved</Text>
+                  <Text style={[s.statLabel, { color: colors.textSecondary }]}>
+                    saved
+                  </Text>
                 </View>
-                <View style={[s.statDivider, { backgroundColor: colors.borderDefault }]} />
+                <View
+                  style={[
+                    s.statDivider,
+                    { backgroundColor: colors.borderDefault },
+                  ]}
+                />
                 <View style={s.statItem}>
                   <Text style={[s.statValue, { color: colors.primary }]}>
                     {result.total_priority_value.toFixed(0)}
                   </Text>
-                  <Text style={[s.statLabel, { color: colors.textSecondary }]}>priority score</Text>
+                  <Text style={[s.statLabel, { color: colors.textSecondary }]}>
+                    priority score
+                  </Text>
                 </View>
-                <View style={[s.statDivider, { backgroundColor: colors.borderDefault }]} />
+                <View
+                  style={[
+                    s.statDivider,
+                    { backgroundColor: colors.borderDefault },
+                  ]}
+                />
                 <View style={s.statItem}>
                   <Text style={[s.statValue, { color: colors.textPrimary }]}>
                     {result.turn_on.length}
                   </Text>
-                  <Text style={[s.statLabel, { color: colors.textSecondary }]}>recommended</Text>
+                  <Text style={[s.statLabel, { color: colors.textSecondary }]}>
+                    recommended
+                  </Text>
                 </View>
               </View>
             </View>
 
             {/* TURN ON */}
-            <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>RECOMMENDED ON</Text>
+            <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+              RECOMMENDED ON
+            </Text>
             <View style={cardStyle}>
               {optimizedAppliances.length === 0 ? (
                 <Text style={[s.emptyText, { color: colors.textSecondary }]}>
@@ -250,20 +403,46 @@ export default function ReportScreen() {
                     style={[
                       s.applianceRow,
                       { borderBottomColor: colors.borderDefault },
-                      i === optimizedAppliances.length - 1 && { borderBottomWidth: 0 },
+                      i === optimizedAppliances.length - 1 && {
+                        borderBottomWidth: 0,
+                      },
                     ]}
                   >
-                    <View style={[s.applianceIcon, { backgroundColor: '#eaf3de' }]}>
-                      <Ionicons name={a.icon as any} size={18} color={colors.secondary} />
+                    <View
+                      style={[s.applianceIcon, { backgroundColor: "#eaf3de" }]}
+                    >
+                      <Ionicons
+                        name={a.icon as any}
+                        size={18}
+                        color={colors.secondary}
+                      />
                     </View>
                     <View style={s.applianceInfo}>
-                      <Text style={[s.applianceName, { color: colors.textPrimary }]}>{a.name}</Text>
-                      <Text style={[s.applianceSub, { color: colors.textSecondary }]}>
-                        {a.watts}W · {a.hours_per_day}h · ₱{((a.watts * a.hours_per_day / 1000) * electricityRate).toFixed(2)}/day
+                      <Text
+                        style={[s.applianceName, { color: colors.textPrimary }]}
+                      >
+                        {a.name}
+                      </Text>
+                      <Text
+                        style={[
+                          s.applianceSub,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
+                        {a.watts}W · {a.hours_per_day}h · ₱
+                        {(
+                          ((a.watts * a.hours_per_day) / 1000) *
+                          electricityRate
+                        ).toFixed(2)}
+                        /day
                       </Text>
                     </View>
-                    <View style={[s.statusBadge, { backgroundColor: '#eaf3de' }]}>
-                      <Text style={[s.statusText, { color: colors.secondary }]}>ON</Text>
+                    <View
+                      style={[s.statusBadge, { backgroundColor: "#eaf3de" }]}
+                    >
+                      <Text style={[s.statusText, { color: colors.secondary }]}>
+                        ON
+                      </Text>
                     </View>
                   </View>
                 ))
@@ -273,7 +452,9 @@ export default function ReportScreen() {
             {/* PRUNE */}
             {prunedAppliances.length > 0 && (
               <>
-                <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>SUGGESTED TO PRUNE</Text>
+                <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+                  SUGGESTED TO PRUNE
+                </Text>
                 <View style={cardStyle}>
                   {prunedAppliances.map((a, i) => (
                     <View
@@ -281,20 +462,60 @@ export default function ReportScreen() {
                       style={[
                         s.applianceRow,
                         { borderBottomColor: colors.borderDefault },
-                        i === prunedAppliances.length - 1 && { borderBottomWidth: 0 },
+                        i === prunedAppliances.length - 1 && {
+                          borderBottomWidth: 0,
+                        },
                       ]}
                     >
-                      <View style={[s.applianceIcon, { backgroundColor: colors.priorityHighBg }]}>
-                        <Ionicons name={a.icon as any} size={18} color={colors.priorityHighText} />
+                      <View
+                        style={[
+                          s.applianceIcon,
+                          { backgroundColor: colors.priorityHighBg },
+                        ]}
+                      >
+                        <Ionicons
+                          name={a.icon as any}
+                          size={18}
+                          color={colors.priorityHighText}
+                        />
                       </View>
                       <View style={s.applianceInfo}>
-                        <Text style={[s.applianceName, { color: colors.textPrimary }]}>{a.name}</Text>
-                        <Text style={[s.applianceSub, { color: colors.textSecondary }]}>
-                          {a.watts}W · {a.hours_per_day}h · ₱{((a.watts * a.hours_per_day / 1000) * electricityRate).toFixed(2)}/day
+                        <Text
+                          style={[
+                            s.applianceName,
+                            { color: colors.textPrimary },
+                          ]}
+                        >
+                          {a.name}
+                        </Text>
+                        <Text
+                          style={[
+                            s.applianceSub,
+                            { color: colors.textSecondary },
+                          ]}
+                        >
+                          {a.watts}W · {a.hours_per_day}h · ₱
+                          {(
+                            ((a.watts * a.hours_per_day) / 1000) *
+                            electricityRate
+                          ).toFixed(2)}
+                          /day
                         </Text>
                       </View>
-                      <View style={[s.statusBadge, { backgroundColor: colors.priorityHighBg }]}>
-                        <Text style={[s.statusText, { color: colors.priorityHighText }]}>OFF</Text>
+                      <View
+                        style={[
+                          s.statusBadge,
+                          { backgroundColor: colors.priorityHighBg },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            s.statusText,
+                            { color: colors.priorityHighText },
+                          ]}
+                        >
+                          OFF
+                        </Text>
                       </View>
                     </View>
                   ))}
@@ -303,28 +524,30 @@ export default function ReportScreen() {
             )}
 
             {/* ALGORITHM EXPLANATION */}
-            <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>HOW IT WORKS</Text>
+            <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+              HOW IT WORKS
+            </Text>
             <View style={cardStyle}>
               {[
                 {
-                  icon: 'git-branch-outline',
-                  title: 'Branch and Bound',
-                  desc: 'Explores all possible combinations of appliances using a decision tree, branching on whether to include or exclude each appliance.',
+                  icon: "git-branch-outline",
+                  title: "Branch and Bound",
+                  desc: "Explores all possible combinations of appliances using a decision tree, branching on whether to include or exclude each appliance.",
                 },
                 {
-                  icon: 'cut-outline',
-                  title: 'Pruning',
-                  desc: 'Branches where the upper bound of priority is lower than the current best solution are pruned, drastically reducing computation.',
+                  icon: "cut-outline",
+                  title: "Pruning",
+                  desc: "Branches where the upper bound of priority is lower than the current best solution are pruned, drastically reducing computation.",
                 },
                 {
-                  icon: 'trending-up-outline',
-                  title: 'Priority Scaling',
-                  desc: 'Appliances in their peak hour window receive a +5 priority boost, ensuring time-sensitive appliances are prioritized.',
+                  icon: "trending-up-outline",
+                  title: "Priority Scaling",
+                  desc: "Appliances in their peak hour window receive a +5 priority boost, ensuring time-sensitive appliances are prioritized.",
                 },
                 {
-                  icon: 'checkmark-circle-outline',
-                  title: 'Optimal Result',
-                  desc: 'The algorithm guarantees the maximum priority value within your budget — not just a good solution, but the best one.',
+                  icon: "checkmark-circle-outline",
+                  title: "Optimal Result",
+                  desc: "The algorithm guarantees the maximum priority value within your budget — not just a good solution, but the best one.",
                 },
               ].map((item, i, arr) => (
                 <View
@@ -335,12 +558,29 @@ export default function ReportScreen() {
                     i === arr.length - 1 && { borderBottomWidth: 0 },
                   ]}
                 >
-                  <View style={[s.explainIcon, { backgroundColor: colors.bgListIcon }]}>
-                    <Ionicons name={item.icon as any} size={18} color={colors.primary} />
+                  <View
+                    style={[
+                      s.explainIcon,
+                      { backgroundColor: colors.bgListIcon },
+                    ]}
+                  >
+                    <Ionicons
+                      name={item.icon as any}
+                      size={18}
+                      color={colors.primary}
+                    />
                   </View>
                   <View style={s.explainBody}>
-                    <Text style={[s.explainTitle, { color: colors.textPrimary }]}>{item.title}</Text>
-                    <Text style={[s.explainDesc, { color: colors.textSecondary }]}>{item.desc}</Text>
+                    <Text
+                      style={[s.explainTitle, { color: colors.textPrimary }]}
+                    >
+                      {item.title}
+                    </Text>
+                    <Text
+                      style={[s.explainDesc, { color: colors.textSecondary }]}
+                    >
+                      {item.desc}
+                    </Text>
                   </View>
                 </View>
               ))}
@@ -362,11 +602,7 @@ const s = StyleSheet.create({
     fontWeight: fontWeights.bold,
     marginTop: spacing.sm,
   },
-  pageSub: {
-    fontSize: fontSizes.sm,
-    marginBottom: spacing.lg,
-    marginTop: 4,
-  },
+  pageSub: { fontSize: fontSizes.sm, marginBottom: spacing.lg, marginTop: 4 },
   sectionLabel: {
     fontSize: fontSizes.xs,
     fontWeight: fontWeights.semibold,
@@ -375,14 +611,10 @@ const s = StyleSheet.create({
     marginBottom: spacing.sm,
     marginLeft: spacing.xs,
   },
-  card: {
-    borderRadius: borderRadius.lg,
-    borderWidth: 0.5,
-    overflow: 'hidden',
-  },
+  card: { borderRadius: borderRadius.lg, borderWidth: 0.5, overflow: "hidden" },
   budgetRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     padding: spacing.md,
     gap: spacing.sm,
   },
@@ -398,101 +630,69 @@ const s = StyleSheet.create({
     paddingVertical: 6,
     fontSize: fontSizes.base,
     width: 100,
-    textAlign: 'right',
+    textAlign: "right",
   },
   runBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: spacing.sm,
     borderRadius: borderRadius.lg,
     paddingVertical: spacing.md,
     marginTop: spacing.lg,
   },
   runBtnText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: fontSizes.base,
     fontWeight: fontWeights.bold,
   },
-  statRow: {
-    flexDirection: 'row',
-    paddingVertical: spacing.md,
-  },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: fontSizes.lg,
-    fontWeight: fontWeights.bold,
-  },
-  statLabel: {
-    fontSize: fontSizes.xs,
-    marginTop: 2,
-  },
-  statDivider: {
-    width: 0.5,
-    height: '70%',
-    alignSelf: 'center',
-  },
+  statRow: { flexDirection: "row", paddingVertical: spacing.md },
+  statItem: { flex: 1, alignItems: "center" },
+  statValue: { fontSize: fontSizes.lg, fontWeight: fontWeights.bold },
+  statLabel: { fontSize: fontSizes.xs, marginTop: 2 },
+  statDivider: { width: 0.5, height: "70%", alignSelf: "center" },
   barChart: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'flex-end',
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "flex-end",
     height: 160,
     padding: spacing.md,
     paddingBottom: 0,
   },
   barGroup: {
-    alignItems: 'center',
+    alignItems: "center",
     gap: 6,
     flex: 1,
-    height: '100%',
-    justifyContent: 'flex-end',
+    height: "100%",
+    justifyContent: "flex-end",
   },
   barTrack: {
     width: 40,
     height: 100,
-    justifyContent: 'flex-end',
+    justifyContent: "flex-end",
     borderRadius: 4,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(0,0,0,0.05)',
+    overflow: "hidden",
+    backgroundColor: "rgba(0,0,0,0.05)",
   },
-  barFill: {
-    width: '100%',
-    borderRadius: 4,
-  },
-  barChartValue: {
-    fontSize: fontSizes.xs,
-    fontWeight: fontWeights.semibold,
-  },
+  barFill: { width: "100%", borderRadius: 4 },
+  barChartValue: { fontSize: fontSizes.xs, fontWeight: fontWeights.semibold },
   barChartLabel: {
     fontSize: fontSizes.xs,
     marginTop: 4,
     marginBottom: spacing.md,
   },
   legend: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
     gap: spacing.lg,
     paddingBottom: spacing.md,
   },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  legendText: {
-    fontSize: fontSizes.xs,
-  },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: fontSizes.xs },
   applianceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     padding: spacing.md,
     borderBottomWidth: 0.5,
     gap: spacing.sm,
@@ -501,34 +701,25 @@ const s = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   applianceInfo: { flex: 1 },
-  applianceName: {
-    fontSize: fontSizes.base,
-    fontWeight: fontWeights.semibold,
-  },
-  applianceSub: {
-    fontSize: fontSizes.xs,
-    marginTop: 2,
-  },
+  applianceName: { fontSize: fontSizes.base, fontWeight: fontWeights.semibold },
+  applianceSub: { fontSize: fontSizes.xs, marginTop: 2 },
   statusBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
     borderRadius: borderRadius.md,
   },
-  statusText: {
-    fontSize: fontSizes.xs,
-    fontWeight: fontWeights.bold,
-  },
+  statusText: { fontSize: fontSizes.xs, fontWeight: fontWeights.bold },
   emptyText: {
     padding: spacing.lg,
-    textAlign: 'center',
+    textAlign: "center",
     fontSize: fontSizes.sm,
   },
   explainRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     padding: spacing.md,
     borderBottomWidth: 0.5,
     gap: spacing.md,
@@ -537,8 +728,8 @@ const s = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     flexShrink: 0,
   },
   explainBody: { flex: 1 },
@@ -547,8 +738,5 @@ const s = StyleSheet.create({
     fontWeight: fontWeights.semibold,
     marginBottom: 4,
   },
-  explainDesc: {
-    fontSize: fontSizes.sm,
-    lineHeight: 18,
-  },
+  explainDesc: { fontSize: fontSizes.sm, lineHeight: 18 },
 });

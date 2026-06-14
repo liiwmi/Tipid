@@ -17,6 +17,7 @@ import { SettingsProvider, useSettings } from "../context/SettingsContext";
 import { ThemeProvider } from "../context/ThemeContext";
 import { useAppliances } from "../hooks/useAppliance";
 import { supabase } from "../lib/supabase";
+import { registerBackgroundOptimization } from "../services/backgroundOptimizer";
 import { checkAndFireNotifications } from "../services/notificationService";
 
 ExpoSplashScreen.preventAutoHideAsync();
@@ -174,6 +175,10 @@ export default function RootLayout() {
   if (!isInitialized || showSplash) {
     return <SplashScreen />;
   }
+
+  useEffect(() => {
+    registerBackgroundOptimization();
+  }, []);
 
   return (
     <SafeAreaProvider>

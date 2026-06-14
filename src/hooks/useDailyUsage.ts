@@ -1,132 +1,110 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import NetInfo from "@react-native-community/netinfo";
-import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useEffect, useState } from 'react';
 
-const PREFIX = "@tipid_usage_";
-
-function getTodayKey() {
-  return PREFIX + new Date().toISOString().split("T")[0];
-}
-
-function getLast7Keys(): { key: string; day: string; date: string }[] {
-  const days = ["S", "M", "T", "W", "T", "F", "S"];
-  const result = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split("T")[0];
-    result.push({
-      key: PREFIX + dateStr,
-      day: days[d.getDay()],
-      date: dateStr,
-    });
-  }
-  return result;
-}
+const HISTORY_KEY = '@tipid_daily_history';
+const MAX_DAYS = 7;
 
 export interface DayUsage {
-  day: string;
-  value: number;
+  day: string;       // display label e.g. "M", "T"
+  date: string;      // ISO date string e.g. "2025-06-14"
+  value: number;     // kWh consumed that day
   isToday: boolean;
 }
 
-export function useDailyUsage(totalDailyKwh: number) {
-  const [weeklyUsage, setWeeklyUsage] = useState<DayUsage[]>([]);
+interface DailyRecord {
+  date: string;      // "YYYY-MM-DD"
+  kwh: number;
+}
 
-  // ── SAVE TODAY'S SNAPSHOT ─────────────────────────────────
+const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+function getTodayString(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
+function getDayLabel(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  return DAY_LABELS[d.getDay()];
+}
+
+async function loadHistory(): Promise<DailyRecord[]> {
+  try {
+    const raw = await AsyncStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveHistory(history: DailyRecord[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  } catch {}
+}
+
+async function upsertToday(kwh: number): Promise<DailyRecord[]> {
+  const today = getTodayString();
+  const history = await loadHistory();
+  const idx = history.findIndex((r) => r.date === today);
+
+  if (idx >= 0) {
+    // Update today's record — always overwrite with latest value
+    history[idx].kwh = kwh;
+  } else {
+    // New day — add record
+    history.push({ date: today, kwh });
+  }
+
+  // Keep only last 30 days to avoid unbounded growth
+  const trimmed = history
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-30);
+
+  await saveHistory(trimmed);
+  return trimmed;
+}
+
+function buildLast7Days(history: DailyRecord[]): DayUsage[] {
+  const today = getTodayString();
+  const result: DayUsage[] = [];
+
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    const record = history.find((r) => r.date === dateStr);
+
+    result.push({
+      day: getDayLabel(dateStr),
+      date: dateStr,
+      value: record?.kwh ?? 0,
+      isToday: dateStr === today,
+    });
+  }
+
+  return result;
+}
+
+export function useDailyUsage(totalDailyKwh: number): DayUsage[] {
+  const [weeklyData, setWeeklyData] = useState<DayUsage[]>([]);
+
+  // On mount — load persisted history immediately
+  useEffect(() => {
+    (async () => {
+      const history = await loadHistory();
+      setWeeklyData(buildLast7Days(history));
+    })();
+  }, []);
+
+  // Whenever totalDailyKwh changes — persist today's value
   useEffect(() => {
     if (totalDailyKwh <= 0) return;
-    const save = async () => {
-      const todayKey = getTodayKey();
-      const todayDate = new Date().toISOString().split("T")[0];
 
-      try {
-        await AsyncStorage.setItem(todayKey, String(totalDailyKwh));
-      } catch (_) {}
-
-      try {
-        const net = await NetInfo.fetch();
-        if (net.isConnected && net.isInternetReachable) {
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-          if (user) {
-            const { data, error } = await supabase
-              .from("daily_usage")
-              .upsert(
-                { user_id: user.id, date: todayDate, kwh: totalDailyKwh },
-                { onConflict: "user_id,date" },
-              );
-            console.log("Usage saved to Supabase:", {
-              date: todayDate,
-              kwh: totalDailyKwh,
-            });
-            if (error) console.log("Supabase error:", error.message);
-          }
-        }
-      } catch (e) {
-        console.log("Save error:", e);
-      }
-    };
-    save();
+    (async () => {
+      const history = await upsertToday(totalDailyKwh);
+      setWeeklyData(buildLast7Days(history));
+    })();
   }, [totalDailyKwh]);
 
-  // ── LOAD LAST 7 DAYS ──────────────────────────────────────
-  useEffect(() => {
-    const load = async () => {
-      const keys = getLast7Keys();
-      const todayDate = new Date().toISOString().split("T")[0];
-
-      // Try Supabase first if online
-      try {
-        const net = await NetInfo.fetch();
-        if (net.isConnected && net.isInternetReachable) {
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-          if (user) {
-            const dates = keys.map((k) => k.date);
-            const { data } = await supabase
-              .from("daily_usage")
-              .select("date, kwh")
-              .eq("user_id", user.id)
-              .in("date", dates);
-
-            if (data && data.length > 0) {
-              // Cache each day locally
-              for (const row of data) {
-                await AsyncStorage.setItem(PREFIX + row.date, String(row.kwh));
-              }
-
-              const mapped: DayUsage[] = keys.map((k) => {
-                const match = data.find((d) => d.date === k.date);
-                return {
-                  day: k.day,
-                  value: match ? parseFloat(match.kwh) : 0,
-                  isToday: k.date === todayDate,
-                };
-              });
-              setWeeklyUsage(mapped);
-              return;
-            }
-          }
-        }
-      } catch (_) {}
-
-      // Fallback to AsyncStorage
-      try {
-        const pairs = await AsyncStorage.multiGet(keys.map((k) => k.key));
-        const data: DayUsage[] = keys.map((k, i) => ({
-          day: k.day,
-          value: pairs[i][1] ? parseFloat(pairs[i][1]) : 0,
-          isToday: k.date === todayDate,
-        }));
-        setWeeklyUsage(data);
-      } catch (_) {}
-    };
-    load();
-  }, [totalDailyKwh]);
-
-  return weeklyUsage;
+  return weeklyData;
 }

@@ -12,15 +12,17 @@ interface Props {
   data: DayUsage[];
 }
 
-function getLast7Days(): { day: string; isToday: boolean }[] {
+function getLast7Days(): { day: string; isToday: boolean; date: string }[] {
   const days = ["S", "M", "T", "W", "T", "F", "S"];
   const today = new Date().toISOString().split("T")[0];
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() - (6 - i));
+    const date = d.toISOString().split("T")[0];
     return {
       day: days[d.getDay()],
-      isToday: d.toISOString().split("T")[0] === today,
+      date,
+      isToday: date === today,
     };
   });
 }
@@ -69,7 +71,7 @@ export default function WeeklyChart({ data }: Props) {
             style={[s.dashedLine, { borderColor: colors.borderSecondary }]}
           />
           <Text style={[s.thresholdLabel, { color: colors.textSecondary }]}>
-            {dailyQuota.toFixed(1)} kWh
+            quota {dailyQuota.toFixed(1)} kWh
           </Text>
         </View>
 
@@ -85,8 +87,8 @@ export default function WeeklyChart({ data }: Props) {
             const barColors: [string, string, string] = d.isToday
               ? ["#ffea9d", "#f68d50", "#f86014"]
               : isOver
-              ? ["#c0c0c0", "#a0a0a0", "#808080"]
-              : ["#e0e0e0", "#cccccc", "#b8b8b8"];
+              ? ["#ef9a9a", "#e57373", "#c62828"]  // red for over-quota days
+  : ["#e0e0e0", "#cccccc", "#b8b8b8"];
 
             return (
               <View key={i} style={s.barWrap}>

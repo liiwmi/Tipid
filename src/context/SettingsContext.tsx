@@ -1,23 +1,39 @@
 // src/context/SettingsContext.tsx
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { createContext, useContext, useEffect, useState } from "react";
 
 const KEYS = {
-  RATE:        '@tipid_electricity_rate',
-  QUOTA:       '@tipid_daily_quota',
-  NOTIF_QUOTA: '@tipid_notif_quota',
-  NOTIF_PEAK:  '@tipid_notif_peak',
-  NOTIF_WEEK:  '@tipid_notif_weekly',
-  FONT_SIZE:   '@tipid_font_size',
-  TTS:         '@tipid_tts',
-};
+  // existing
+  RATE: "@tipid_electricity_rate",
+  QUOTA: "@tipid_daily_quota",
+  NOTIF_QUOTA: "@tipid_notif_quota",
+  NOTIF_PEAK: "@tipid_notif_peak",
+  NOTIF_WEEK: "@tipid_notif_weekly",
+  FONT_SIZE: "@tipid_font_size",
+  TTS: "@tipid_tts",
 
-export type FontSize = 'small' | 'medium' | 'large';
+  // new — quota period tracking
+  QUOTA_START_TS: "@tipid_quota_start_timestamp",
+  QUOTA_START_KWH: "@tipid_quota_start_kwh",
+  QUOTA_PROJECTED: "@tipid_quota_projected_completion",
+
+  // new — optimization & pruning
+  PRUNE_CANDIDATES: "@tipid_prune_candidates",
+  PRUNING_HISTORY: "@tipid_pruning_history",
+  OPT_SESSIONS: "@tipid_optimization_sessions",
+  CONFIRMED_PRUNES: "@tipid_confirmed_prunes",
+
+  // new — threshold dedup
+  THRESHOLD_75: "@tipid_last_threshold_75",
+  THRESHOLD_90: "@tipid_last_threshold_90",
+  THRESHOLD_100: "@tipid_last_threshold_100",
+};
+export type FontSize = "small" | "medium" | "large";
 
 export const FONT_SCALE: Record<FontSize, number> = {
-  small:  0.85,
+  small: 0.85,
   medium: 1.0,
-  large:  1.2,
+  large: 1.2,
 };
 
 interface SettingsContextType {
@@ -44,13 +60,22 @@ interface SettingsContextType {
   isLoaded: boolean;
 }
 
-const defaults: Omit<SettingsContextType, 'setElectricityRate' | 'setDailyQuota' | 'setNotifQuota' | 'setNotifPeak' | 'setNotifWeekly' | 'setFontSize' | 'setTtsEnabled'> = {
+const defaults: Omit<
+  SettingsContextType,
+  | "setElectricityRate"
+  | "setDailyQuota"
+  | "setNotifQuota"
+  | "setNotifPeak"
+  | "setNotifWeekly"
+  | "setFontSize"
+  | "setTtsEnabled"
+> = {
   electricityRate: 11.5,
   dailyQuota: 8.0,
   notifQuota: true,
   notifPeak: true,
   notifWeekly: false,
-  fontSize: 'medium',
+  fontSize: "medium",
   ttsEnabled: false,
   isLoaded: false,
 };
@@ -67,7 +92,9 @@ const SettingsContext = createContext<SettingsContextType>({
 });
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  const [electricityRate, _setElectricityRate] = useState(defaults.electricityRate);
+  const [electricityRate, _setElectricityRate] = useState(
+    defaults.electricityRate,
+  );
   const [dailyQuota, _setDailyQuota] = useState(defaults.dailyQuota);
   const [notifQuota, _setNotifQuota] = useState(defaults.notifQuota);
   const [notifPeak, _setNotifPeak] = useState(defaults.notifPeak);
@@ -81,16 +108,21 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const [rate, quota, nq, np, nw, fs, tts] = await AsyncStorage.multiGet([
-          KEYS.RATE, KEYS.QUOTA, KEYS.NOTIF_QUOTA, KEYS.NOTIF_PEAK,
-          KEYS.NOTIF_WEEK, KEYS.FONT_SIZE, KEYS.TTS,
+          KEYS.RATE,
+          KEYS.QUOTA,
+          KEYS.NOTIF_QUOTA,
+          KEYS.NOTIF_PEAK,
+          KEYS.NOTIF_WEEK,
+          KEYS.FONT_SIZE,
+          KEYS.TTS,
         ]);
-        if (rate[1])  _setElectricityRate(parseFloat(rate[1]));
+        if (rate[1]) _setElectricityRate(parseFloat(rate[1]));
         if (quota[1]) _setDailyQuota(parseFloat(quota[1]));
-        if (nq[1])    _setNotifQuota(nq[1] === 'true');
-        if (np[1])    _setNotifPeak(np[1] === 'true');
-        if (nw[1])    _setNotifWeekly(nw[1] === 'true');
-        if (fs[1])    _setFontSize(fs[1] as FontSize);
-        if (tts[1])   _setTtsEnabled(tts[1] === 'true');
+        if (nq[1]) _setNotifQuota(nq[1] === "true");
+        if (np[1]) _setNotifPeak(np[1] === "true");
+        if (nw[1]) _setNotifWeekly(nw[1] === "true");
+        if (fs[1]) _setFontSize(fs[1] as FontSize);
+        if (tts[1]) _setTtsEnabled(tts[1] === "true");
       } catch (_) {}
       setIsLoaded(true);
     })();
@@ -100,6 +132,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const setElectricityRate = async (v: number) => {
     _setElectricityRate(v);
     await AsyncStorage.setItem(KEYS.RATE, String(v));
+    await AsyncStorage.removeItem("@tipid_quota_start_timestamp"); // ADD
+    await AsyncStorage.removeItem("@tipid_quota_start_kwh");
   };
   const setDailyQuota = async (v: number) => {
     _setDailyQuota(v);
@@ -127,14 +161,25 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <SettingsContext.Provider value={{
-      electricityRate, dailyQuota,
-      notifQuota, notifPeak, notifWeekly,
-      fontSize, ttsEnabled, isLoaded,
-      setElectricityRate, setDailyQuota,
-      setNotifQuota, setNotifPeak, setNotifWeekly,
-      setFontSize, setTtsEnabled,
-    }}>
+    <SettingsContext.Provider
+      value={{
+        electricityRate,
+        dailyQuota,
+        notifQuota,
+        notifPeak,
+        notifWeekly,
+        fontSize,
+        ttsEnabled,
+        isLoaded,
+        setElectricityRate,
+        setDailyQuota,
+        setNotifQuota,
+        setNotifPeak,
+        setNotifWeekly,
+        setFontSize,
+        setTtsEnabled,
+      }}
+    >
       {children}
     </SettingsContext.Provider>
   );

@@ -1,7 +1,8 @@
+import { checkAndFireNotifications } from "@/src/services/notificationService";
 import { Ionicons } from "@expo/vector-icons";
 import { DrawerActions } from "@react-navigation/native";
 import { useNavigation } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Image, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import {
   SafeAreaView,
@@ -13,13 +14,19 @@ import MetricsGrid from "../../components/dashboard/MetricsGrid";
 import QuotaCard from "../../components/dashboard/QuotaCard";
 import WeeklyChart from "../../components/dashboard/WeeklyChart";
 import AddApplianceModal from "../../components/modals/AddApplianceModal";
+import { useProfileContext } from "../../context/ProfileContext";
+import { useSettings } from "../../context/SettingsContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useAppliances } from "../../hooks/useAppliance";
 import { useDailyUsage } from "../../hooks/useDailyUsage";
 import { usePeakHour } from "../../hooks/usePeakHour";
+import { useQuotaProjection } from "../../hooks/useQuotaProjection";
 import { globalStyles as styles } from "../../styles/styles";
-import { useProfileContext } from '../../context/ProfileContext';
+
 export default function DashboardScreen() {
+  const { electricityRate, dailyQuota } = useSettings();
+  const { projectedMinutesRemaining, recalculate, initPeriod } =
+    useQuotaProjection();
   const navigation = useNavigation();
   const { colors } = useTheme();
   const {
@@ -49,6 +56,31 @@ export default function DashboardScreen() {
       : hour < 17
         ? "Good Afternoon,"
         : "Good Evening,";
+
+  // Init the quota period anchor on first load
+  useEffect(() => {
+    initPeriod(totalDailyKwh);
+  }, []);
+
+  // Recalculate projection whenever consumption changes
+  useEffect(() => {
+  recalculate(totalDailyKwh, dailyQuota, appliances);
+}, [totalDailyKwh, dailyQuota, appliances]);
+
+  // Check and fire notifications whenever consumption changes
+  useEffect(() => {
+    if (totalDailyKwh > 0) {
+      checkAndFireNotifications(
+        appliances,
+        totalDailyKwh,
+        dailyQuota,
+        electricityRate,
+        true,
+        true,
+        projectedMinutesRemaining,
+      );
+    }
+  }, [totalDailyKwh]);
 
   return (
     <GradientBackground>
@@ -101,6 +133,7 @@ export default function DashboardScreen() {
             totalDailyCost={totalDailyCost}
             progressWidth={progressWidth}
             appliances={appliances}
+            projectedMinutesRemaining={projectedMinutesRemaining}
           />
           <MetricsGrid
             applianceCount={activeAppliances.length}

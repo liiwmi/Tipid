@@ -21,9 +21,11 @@ interface Props {
   totalDailyCost: number;
   progressWidth: number;
   appliances?: { watts: number; is_active: boolean }[];
+  projectedMinutesRemaining: number | null;
 }
 
 function getProgressColor(pct: number): string {
+  if (pct >= 110) return "#7b0000";
   if (pct >= 100) return "#c62828";
   if (pct >= 75) return "#f57f17";
   if (pct >= 50) return "#f9a825";
@@ -60,6 +62,7 @@ export default function QuotaCard({
   totalDailyCost,
   progressWidth,
   appliances = [],
+  projectedMinutesRemaining, // ADD THIS
 }: Props) {
   const [, setTick] = useState(0);
   const { colors } = useTheme();
@@ -68,11 +71,25 @@ export default function QuotaCard({
   const [editingRate, setEditingRate] = useState(false);
   const [draftRate, setDraftRate] = useState(String(electricityRate));
 
-  const pct = Math.min(progressWidth, 100);
+  const pct = progressWidth;
   const progressColor = getProgressColor(pct);
   const remaining = Math.max(dailyQuota - totalDailyKwh, 0);
   const isOver = totalDailyKwh >= dailyQuota;
-  const timeLabel = estimateHoursLeft(totalDailyKwh, dailyQuota, appliances);
+  const timeLabel = (() => {
+    if (projectedMinutesRemaining === null) return null;
+    if (projectedMinutesRemaining <= 0) return "Quota reached";
+
+    const totalSeconds = Math.round(projectedMinutesRemaining * 60);
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+
+    if (h > 0 && m > 0) return `~${h}h ${m}m until quota`;
+    if (h > 0) return `~${h}h until quota`;
+    if (m > 0 && s > 0) return `${m}m ${s}s until quota`;
+    if (m > 0) return `${m}m until quota`;
+    return `${s}s until quota`;
+  })();
 
   const handleSaveRate = () => {
     const v = parseFloat(draftRate);
@@ -107,7 +124,7 @@ export default function QuotaCard({
         </Text>
         <View style={[s.pctBadge, { backgroundColor: progressColor + "22" }]}>
           <Text style={[s.pctText, { color: progressColor }]}>
-            {pct.toFixed(0)}%
+            {pct.toFixed(1)}%
           </Text>
         </View>
       </View>
@@ -115,7 +132,10 @@ export default function QuotaCard({
       {/* PROGRESS BAR */}
       <View style={[s.track, { backgroundColor: colors.progressTrack }]}>
         <View
-          style={[s.fill, { width: `${pct}%`, backgroundColor: progressColor }]}
+          style={[
+            s.fill,
+            { width: `${Math.min(pct, 100)}%`, backgroundColor: progressColor },
+          ]}
         />
       </View>
 
@@ -133,9 +153,15 @@ export default function QuotaCard({
         </View>
         <View style={s.footerRight}>
           {isOver ? (
-            <Text style={[s.remainingText, { color: "#c62828" }]}>
-              +{(totalDailyKwh - dailyQuota).toFixed(2)} kWh over
-            </Text>
+            <>
+              <Text style={[s.remainingText, { color: "#c62828" }]}>
+                +{(totalDailyKwh - dailyQuota).toFixed(2)} kWh over
+              </Text>
+              <Text style={[s.quotaLimit, { color: "#c62828" }]}>
+                est. extra ₱
+                {((totalDailyKwh - dailyQuota) * electricityRate).toFixed(2)}
+              </Text>
+            </>
           ) : (
             <Text style={[s.remainingText, { color: progressColor }]}>
               {remaining.toFixed(2)} kWh left

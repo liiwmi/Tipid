@@ -10,6 +10,15 @@ const APPLIANCES_CACHE_KEY = "@appliances_cache";
 const PENDING_QUEUE_KEY = "@pending_appliances";
 const PENDING_DELETES_KEY = "@pending_deletes";
 const PENDING_UPDATES_KEY = "@pending_updates";
+const DAILY_HISTORY_KEY = "@tipid_daily_history";
+const QUOTA_START_TS_KEY = "@tipid_quota_start_timestamp";
+const QUOTA_START_KWH_KEY = "@tipid_quota_start_kwh";
+const QUOTA_PROJECTED_KEY = "@tipid_quota_projected_completion";
+const CONFIRMED_PRUNES_KEY = "@tipid_confirmed_prunes";
+const PRUNE_CANDIDATES_KEY = "@tipid_prune_candidates";
+const NOTIF_LOG_KEY = "@tipid_notif_log";
+const PRUNING_HISTORY_KEY = "@tipid_pruning_history";
+const ELECTRICITY_RATE_KEY = "@tipid_electricity_rate";
 
 type PendingUpdate = {
   id: string;
@@ -17,11 +26,50 @@ type PendingUpdate = {
   queuedAt: string;
 };
 
+type DailyRecord = {
+  date: string;
+  kwh: number;
+};
+
+function getTodayString(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
+// ─── DAILY HISTORY HELPERS ──────────────────────────────────
+async function upsertDailyHistory(kwh: number): Promise<void> {
+  if (kwh <= 0) return;
+  try {
+    const today = getTodayString();
+    const raw = await AsyncStorage.getItem(DAILY_HISTORY_KEY);
+    const history: DailyRecord[] = raw ? JSON.parse(raw) : [];
+    const idx = history.findIndex((r) => r.date === today);
+
+    if (idx >= 0) {
+      // Always overwrite with latest computed value —
+      // this handles the over-100% case correctly
+      history[idx].kwh = kwh;
+    } else {
+      history.push({ date: today, kwh });
+    }
+
+    // Keep last 30 days, sorted ascending
+    const trimmed = history
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-30);
+
+    await AsyncStorage.setItem(DAILY_HISTORY_KEY, JSON.stringify(trimmed));
+  } catch {}
+}
+
 export function useAppliances() {
   const [appliances, setAppliances] = useState<Appliance[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(true);
-  const { electricityRate, dailyQuota } = useSettings();
+  const {
+    electricityRate,
+    dailyQuota,
+    isLoaded: settingsLoaded,
+  } = useSettings();
 
   const appliancesRef = useRef<Appliance[]>([]);
   useEffect(() => {
@@ -50,7 +98,6 @@ export function useAppliances() {
     }
   }
 
-  // ─── PENDING INSERTS ────────────────────────────────────
   async function getPendingQueue(): Promise<
     Omit<Appliance, "id" | "created_at">[]
   > {
@@ -109,10 +156,6 @@ export function useAppliances() {
   }
 
   // ─── FETCH FROM SERVER ──────────────────────────────────
-  // After fetching, apply any pending local updates on top so edits
-  // made offline are never overwritten by a stale server response.
-  // If the server row was updated more recently than our queued edit,
-  // the server wins and the stale local change is dropped (conflict).
   async function fetchFromServer() {
     const { data, error } = await supabase
       .from("appliances")
@@ -133,17 +176,15 @@ export function useAppliances() {
       const queuedAt = new Date(pending.queuedAt).getTime();
 
       if (serverUpdatedAt > queuedAt) {
-        // Conflict: server changed after our edit was queued — server wins
         return serverItem;
       }
 
       return { ...serverItem, ...pending.updates };
     });
 
-    // Drop pending updates that lost a conflict (server was newer)
     const stillValid = pendingUpdates.filter((u) => {
       const serverItem = (data || []).find((s) => s.id === u.id);
-      if (!serverItem) return true; // not on server yet, keep
+      if (!serverItem) return true;
       const serverUpdatedAt = serverItem.updated_at
         ? new Date(serverItem.updated_at).getTime()
         : 0;
@@ -156,6 +197,13 @@ export function useAppliances() {
 
     setAppliances(merged);
     await saveCache(merged);
+
+    // Update history with fresh server data
+    const freshKwh = merged.reduce(
+      (sum, a) => sum + (a.watts * a.hours_per_day) / 1000,
+      0,
+    );
+    await upsertDailyHistory(freshKwh);
   }
 
   // ─── SYNC PENDING ───────────────────────────────────────
@@ -165,7 +213,6 @@ export function useAppliances() {
     } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Inserts
     const queue = await getPendingQueue();
     const failedInserts: Omit<Appliance, "id" | "created_at">[] = [];
     for (const item of queue) {
@@ -180,7 +227,6 @@ export function useAppliances() {
     }
     await savePendingQueue(failedInserts);
 
-    // Updates — last-write-wins with conflict logging
     const updates = await getPendingUpdates();
     const failedUpdates: PendingUpdate[] = [];
     for (const entry of updates) {
@@ -214,14 +260,10 @@ export function useAppliances() {
     }
     await savePendingUpdates(failedUpdates);
 
-    // Deletes
     const deletes = await getPendingDeletes();
     const failedDeletes: string[] = [];
     for (const id of deletes) {
-      const { error } = await supabase
-        .from("appliances")
-        .delete()
-        .eq("id", id);
+      const { error } = await supabase.from("appliances").delete().eq("id", id);
       if (error) failedDeletes.push(id);
     }
     await AsyncStorage.setItem(
@@ -232,20 +274,69 @@ export function useAppliances() {
     await fetchFromServer();
   }
 
+  // ─── DAILY RESET CHECK ──────────────────────────────────
+  async function checkDailyReset(): Promise<void> {
+    try {
+      const tsRaw = await AsyncStorage.getItem(QUOTA_START_TS_KEY);
+      if (!tsRaw) return;
+
+      const storedDate = new Date(parseInt(tsRaw, 10))
+        .toISOString()
+        .split("T")[0];
+      const today = getTodayString();
+
+      if (storedDate !== today) {
+        await AsyncStorage.multiRemove([
+          QUOTA_START_TS_KEY,
+          QUOTA_START_KWH_KEY,
+          QUOTA_PROJECTED_KEY,
+          CONFIRMED_PRUNES_KEY,
+          PRUNE_CANDIDATES_KEY,
+        ]);
+
+        // Clear only threshold dedups, preserve other notif log entries
+        const logRaw = await AsyncStorage.getItem(NOTIF_LOG_KEY);
+        if (logRaw) {
+          const log = JSON.parse(logRaw);
+          delete log["quota_75"];
+          delete log["quota_warning_90"];
+          delete log["quota_exceeded"];
+          await AsyncStorage.setItem(NOTIF_LOG_KEY, JSON.stringify(log));
+        }
+      }
+    } catch {}
+  }
+
   // ─── LOAD ───────────────────────────────────────────────
   const loadAppliances = useCallback(async () => {
     setLoading(true);
 
-    // 1. Show cache immediately (with pending updates already merged in)
-    const cached = await loadCache();
-    if (cached.length > 0) setAppliances(cached);
+    // 1. Check if a new day started and reset quota period if so
+    await checkDailyReset();
 
+    // 2. Load cache and show immediately
+    const cached = await loadCache();
+    if (cached.length > 0) {
+      setAppliances(cached);
+
+      // 3. Snapshot today's kWh from the loaded cache
+      //    This runs right after setAppliances so cached data is available.
+      //    Uses cached array directly (not appliancesRef which hasn't updated yet)
+      const cachedKwh = cached.reduce(
+        (sum, a) => sum + (a.watts * a.hours_per_day) / 1000,
+        0,
+      );
+      await upsertDailyHistory(cachedKwh);
+    }
+
+    // 4. Network check and sync
     const online = await checkOnline();
     setIsOnline(online);
 
     if (online) {
+      // fetchFromServer is called inside syncPending and also
+      // calls upsertDailyHistory with fresh server data
       await syncPending();
-      // fetchFromServer is called inside syncPending
     }
 
     setLoading(false);
@@ -271,23 +362,25 @@ export function useAppliances() {
   // ─── UPDATE ─────────────────────────────────────────────
   const updateAppliance = useCallback(
     async (id: string, updates: Partial<Appliance>): Promise<void> => {
-      // 1. Update local state immediately using ref to avoid stale closure
       const current = appliancesRef.current;
       const updated = current.map((a) =>
         a.id === id ? { ...a, ...updates } : a,
       );
       setAppliances(updated);
-
-      // 2. Persist to cache immediately so reload shows correct data
       await saveCache(updated);
 
-      // 3. Skip Supabase for temp offline items
+      // Update history whenever appliance state changes
+      const updatedKwh = updated.reduce(
+        (sum, a) => sum + (a.watts * a.hours_per_day) / 1000,
+        0,
+      );
+      await upsertDailyHistory(updatedKwh);
+
       if (id.startsWith("temp_")) {
         await queueUpdate(id, updates);
         return;
       }
 
-      // 4. Online vs offline handling
       const online = await checkOnline();
       if (online) {
         const { data, error } = await supabase
@@ -297,23 +390,96 @@ export function useAppliances() {
           .select();
 
         if (error || !data || data.length === 0) {
-          // Supabase failed or RLS blocked the update — queue for later sync
           await queueUpdate(id, updates);
         }
       } else {
-        // Offline — queue for later sync
         await queueUpdate(id, updates);
       }
     },
     [],
   );
 
+  // ─── RECORD CONFIRMED PRUNE ─────────────────────────────
+  async function recordConfirmedPrune(
+    appliance: Appliance,
+    rate: number,
+  ): Promise<void> {
+    try {
+      const projectedRaw = await AsyncStorage.getItem(QUOTA_PROJECTED_KEY);
+      const projectedMsBefore = projectedRaw
+        ? new Date(projectedRaw).getTime() - Date.now()
+        : null;
+
+      const applianceKw = appliance.watts / 1000;
+      const minutesGainedVal =
+        projectedMsBefore !== null && projectedMsBefore > 0
+          ? projectedMsBefore / 60_000
+          : 0;
+      const hoursGained = minutesGainedVal / 60;
+      const kwhSaved = applianceKw * hoursGained;
+      const costSaved = kwhSaved * rate;
+
+      const auditEntry = {
+        id: `prune_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        type: "confirmed_prune",
+        applianceId: appliance.id,
+        applianceName: appliance.name,
+        watts: appliance.watts,
+        hoursPerDay: appliance.hours_per_day,
+        projectedMinutesBefore: minutesGainedVal,
+        kwhSaved,
+        costSaved,
+        minutesGained: minutesGainedVal,
+        userAction: "turned_off",
+      };
+
+      // Write to confirmed prunes
+      const prunesRaw = await AsyncStorage.getItem(CONFIRMED_PRUNES_KEY);
+      const prunes = prunesRaw ? JSON.parse(prunesRaw) : [];
+      prunes.unshift(auditEntry);
+      await AsyncStorage.setItem(CONFIRMED_PRUNES_KEY, JSON.stringify(prunes));
+
+      // Write to pruning history audit trail (capped at 200)
+      const histRaw = await AsyncStorage.getItem(PRUNING_HISTORY_KEY);
+      const hist = histRaw ? JSON.parse(histRaw) : [];
+      hist.unshift(auditEntry);
+      await AsyncStorage.setItem(
+        PRUNING_HISTORY_KEY,
+        JSON.stringify(hist.slice(0, 200)),
+      );
+
+      // Reset quota period anchor to now with the new lower baseline
+      await AsyncStorage.setItem(QUOTA_START_TS_KEY, Date.now().toString());
+      const newKwh = appliancesRef.current
+        .filter((a) => a.is_active && a.id !== appliance.id)
+        .reduce((sum, a) => sum + (a.watts * a.hours_per_day) / 1000, 0);
+      await AsyncStorage.setItem(QUOTA_START_KWH_KEY, newKwh.toString());
+    } catch {}
+  }
+
   // ─── TOGGLE ACTIVE ──────────────────────────────────────
   const toggleActive = useCallback(
     async (id: string) => {
       const appliance = appliancesRef.current.find((a) => a.id === id);
       if (!appliance) return;
-      await updateAppliance(id, { is_active: !appliance.is_active });
+
+      const newActiveState = !appliance.is_active;
+      await updateAppliance(id, { is_active: newActiveState });
+
+      // Detect confirmed prune — only when turning OFF
+      if (!newActiveState) {
+        const candidatesRaw = await AsyncStorage.getItem(PRUNE_CANDIDATES_KEY);
+        const candidates: Appliance[] = candidatesRaw
+          ? JSON.parse(candidatesRaw)
+          : [];
+        const wasCandidate = candidates.some((c) => c.id === id);
+        if (wasCandidate) {
+          const rateRaw = await AsyncStorage.getItem(ELECTRICITY_RATE_KEY);
+          const rate = rateRaw ? parseFloat(rateRaw) : 11.5;
+          await recordConfirmedPrune(appliance, rate);
+        }
+      }
     },
     [updateAppliance],
   );
@@ -354,6 +520,13 @@ export function useAppliances() {
       setAppliances(updated);
       await saveCache(updated);
 
+      // Snapshot updated total after offline add
+      const newKwh = updated.reduce(
+        (sum, a) => sum + (a.watts * a.hours_per_day) / 1000,
+        0,
+      );
+      await upsertDailyHistory(newKwh);
+
       Alert.alert(
         "Saved Offline",
         "This appliance will sync when you are back online.",
@@ -366,6 +539,13 @@ export function useAppliances() {
     const updated = appliancesRef.current.filter((a) => a.id !== id);
     setAppliances(updated);
     await saveCache(updated);
+
+    // Snapshot after delete
+    const newKwh = updated.reduce(
+      (sum, a) => sum + (a.watts * a.hours_per_day) / 1000,
+      0,
+    );
+    await upsertDailyHistory(newKwh);
 
     if (id.startsWith("temp_")) {
       const queue = await getPendingQueue();
@@ -383,10 +563,7 @@ export function useAppliances() {
     } else {
       const deletes = await getPendingDeletes();
       deletes.push(id);
-      await AsyncStorage.setItem(
-        PENDING_DELETES_KEY,
-        JSON.stringify(deletes),
-      );
+      await AsyncStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(deletes));
     }
   }
 
@@ -404,7 +581,8 @@ export function useAppliances() {
     0,
   );
 
-  const progressWidth = Math.min((totalDailyKwh / dailyQuota) * 100, 100);
+  // No Math.min — raw percentage, supports over 100%
+  const progressWidth = settingsLoaded ? (totalDailyKwh / dailyQuota) * 100 : 0;
 
   return {
     appliances,

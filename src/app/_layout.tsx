@@ -16,6 +16,7 @@ import { ProfileProvider } from "../context/ProfileContext";
 import { SettingsProvider, useSettings } from "../context/SettingsContext";
 import { ThemeProvider } from "../context/ThemeContext";
 import { useAppliances } from "../hooks/useAppliance";
+import { useQuotaProjection } from "../hooks/useQuotaProjection";
 import { supabase } from "../lib/supabase";
 import { registerBackgroundOptimization } from "../services/backgroundOptimizer";
 import { checkAndFireNotifications } from "../services/notificationService";
@@ -25,7 +26,8 @@ ExpoSplashScreen.preventAutoHideAsync();
 // ─── NOTIFICATION CONTROLLER ─────────────────────────────────
 function NotificationController() {
   const { appliances, totalDailyKwh, loading } = useAppliances();
-  const { dailyQuota, notifQuota, notifPeak } = useSettings();
+  const { dailyQuota, notifQuota, notifPeak, electricityRate } = useSettings(); // merge into one line
+  const { projectedMinutesRemaining } = useQuotaProjection();
 
   useEffect(() => {
     if (loading || appliances.length === 0) return;
@@ -34,8 +36,10 @@ function NotificationController() {
       appliances,
       totalDailyKwh,
       dailyQuota,
-      notifQuota,
-      notifPeak,
+      electricityRate,
+      notifQuota, // was notifQuotaEnabled
+      notifPeak, // was notifPeakEnabled
+      projectedMinutesRemaining,
     );
 
     const sub = AppState.addEventListener("change", (state: AppStateStatus) => {
@@ -44,8 +48,10 @@ function NotificationController() {
           appliances,
           totalDailyKwh,
           dailyQuota,
-          notifQuota,
-          notifPeak,
+          electricityRate,
+          notifQuota, // was notifQuotaEnabled
+          notifPeak, // was notifPeakEnabled
+          projectedMinutesRemaining,
         );
       }
     });

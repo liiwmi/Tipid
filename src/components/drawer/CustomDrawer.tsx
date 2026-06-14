@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { useTheme } from "../../context/ThemeContext";
-import { useProfile } from "../../hooks/useProfile";
+import { useProfileContext } from "../../context/ProfileContext";
 import { useAppliances } from "../../hooks/useAppliance";
 import { useSettings } from "../../context/SettingsContext";
 import { useNotifications } from "../../hooks/useNotifications";
@@ -23,7 +23,7 @@ import NotificationsPanel from "./NotificationsPanel";
 export default function CustomDrawer(props: any) {
   const router = useRouter();
   const { isDarkMode, toggleDarkMode, colors } = useTheme();
-  const { profile } = useProfile();
+  const { profile } = useProfileContext();
   const { appliances, totalDailyKwh } = useAppliances();
  const { dailyQuota, notifQuota, notifPeak, setNotifQuota, setNotifPeak, setNotifWeekly } = useSettings();
   const {

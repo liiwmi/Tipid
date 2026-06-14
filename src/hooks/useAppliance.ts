@@ -132,6 +132,18 @@ export function useAppliances() {
 
     return () => subscription.remove();
   }, []);
+  async function updateAppliance(id: string, updates: Partial<Appliance>) {
+  const updated = appliances.map((a) =>
+    a.id === id ? { ...a, ...updates } : a
+  );
+  setAppliances(updated);
+  await saveCache(updated);
+
+  const online = await checkOnline();
+  if (online && !id.startsWith("temp_")) {
+    await supabase.from("appliances").update(updates).eq("id", id);
+  }
+} 
 
   // ─── ADD APPLIANCE ────────────────────────────────────────
   async function addAppliance(appliance: Omit<Appliance, 'id' | 'created_at' | 'user_id'>) {
@@ -250,6 +262,7 @@ const progressWidth = Math.min((totalDailyKwh / dailyQuota) * 100, 100);
     totalDailyCost,
     progressWidth,
     addAppliance,
+    updateAppliance,
     deleteAppliance,
     toggleActive,
     refresh: loadAppliances,

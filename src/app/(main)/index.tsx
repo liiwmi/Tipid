@@ -1,86 +1,97 @@
-import React, { useState } from "react";
-import { View, Text, ScrollView, TouchableOpacity, Image } from "react-native";
-import { useNavigation } from "expo-router";
-import { DrawerActions } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { globalStyles as styles } from "../../styles/styles";
+import { DrawerActions } from "@react-navigation/native";
+import { useNavigation } from "expo-router";
+import React, { useState } from "react";
+import { Image, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
+import GradientBackground from "../../components/common/Gradientbackground";
+import ApplianceList from "../../components/dashboard/ApplianceList";
+import MetricsGrid from "../../components/dashboard/MetricsGrid";
+import QuotaCard from "../../components/dashboard/QuotaCard";
+import WeeklyChart from "../../components/dashboard/WeeklyChart";
+import AddApplianceModal from "../../components/modals/AddApplianceModal";
 import { useTheme } from "../../context/ThemeContext";
 import { useAppliances } from "../../hooks/useAppliance";
-import WeeklyChart from "../../components/dashboard/WeeklyChart";
-import QuotaCard from "../../components/dashboard/QuotaCard";
-import MetricsGrid from "../../components/dashboard/MetricsGrid";
-import ApplianceList from "../../components/dashboard/ApplianceList";
-import AddApplianceModal from "../../components/modals/AddApplianceModal";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { usePeakHour } from "../../hooks/usePeakHour";
 import { useDailyUsage } from "../../hooks/useDailyUsage";
-import { LinearGradient } from "expo-linear-gradient";
-import { useProfile } from '../../hooks/useProfile';
-import { fontSizes, fontWeights } from '../../styles/theme';
-
+import { usePeakHour } from "../../hooks/usePeakHour";
+import { globalStyles as styles } from "../../styles/styles";
+import { useProfileContext } from '../../context/ProfileContext';
 export default function DashboardScreen() {
   const navigation = useNavigation();
-  const { colors, isDarkMode } = useTheme();
+  const { colors } = useTheme();
   const {
-  appliances,
-  activeAppliances,
-  loading,
-  totalDailyKwh,
-  totalDailyCost,
-  progressWidth,
-  addAppliance,
-  toggleActive,
-} = useAppliances();
+    appliances,
+    activeAppliances,
+    loading,
+    totalDailyKwh,
+    totalDailyCost,
+    progressWidth,
+    addAppliance,
+    toggleActive,
+    updateAppliance,
+    deleteAppliance,
+  } = useAppliances();
   const weeklyUsage = useDailyUsage(totalDailyKwh);
   const { label: peakLabel, isInPeak } = usePeakHour(appliances);
   const [addApplianceVisible, setAddApplianceVisible] = useState(false);
   const openAddAppliance = () => setAddApplianceVisible(true);
   const closeAddAppliance = () => setAddApplianceVisible(false);
   const insets = useSafeAreaInsets();
-  const { profile } = useProfile();
+  const { profile } = useProfileContext();
 
   const hour = new Date().getHours();
   const greeting =
-    hour < 12 ? 'Good Morning,' :
-    hour < 17 ? 'Good Afternoon,' :
-    'Good Evening,';
+    hour < 12
+      ? "Good Morning,"
+      : hour < 17
+        ? "Good Afternoon,"
+        : "Good Evening,";
 
   return (
-   <LinearGradient
-  colors={
-    isDarkMode
-      ? ['#454303', '#180e08', '#141414']
-      : ['#adcf12bf', '#cbf70a57', '#ffffff']
-  }
-  start={{ x: 0.5, y: 0 }}
-  end={{ x: 0.5, y: 0.35 }}
-  style={{ flex: 1 }}
->
+    <GradientBackground>
       <SafeAreaView
-        edges={['top', 'bottom', 'left', 'right']}
-        style={[styles.safeArea, { backgroundColor: 'transparent' }]}
+        edges={["top", "bottom", "left", "right"]}
+        style={[styles.safeArea, { backgroundColor: "transparent" }]}
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-          style={{ backgroundColor: 'transparent' }}
+          style={{ backgroundColor: "transparent" }}
         >
           {/* HEADER */}
           <View style={styles.headerRow}>
             <View>
-              <Text style={[styles.greetingText, { color: colors.textPrimary }]}>
+              <Text
+                style={[styles.greetingText, { color: colors.textPrimary }]}
+              >
                 {greeting}
               </Text>
               <Text style={[styles.nameText, { color: colors.primary }]}>
-                {profile.displayName || 'User!'}
+                {profile.displayName || "User!"}
               </Text>
             </View>
-             <TouchableOpacity
-              style={[styles.avatarPlaceholder, { backgroundColor: colors.bgAvatar }]}
+            <TouchableOpacity
+              style={[
+                styles.avatarPlaceholder,
+                { backgroundColor: colors.bgAvatar },
+              ]}
               onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
             >
-              <Ionicons name="person" size={20} color={colors.textSecondary} />
+              {profile.avatarUri ? (
+                <Image
+                  source={{ uri: profile.avatarUri }}
+                  style={{ width: "100%", height: "100%", borderRadius: 999 }}
+                />
+              ) : (
+                <Ionicons
+                  name="person"
+                  size={20}
+                  color={colors.textSecondary}
+                />
+              )}
             </TouchableOpacity>
           </View>
 
@@ -92,23 +103,32 @@ export default function DashboardScreen() {
             appliances={appliances}
           />
           <MetricsGrid
-          applianceCount={activeAppliances.length}
-          peakLabel={peakLabel}
-          isInPeak={isInPeak}
-        />
+            applianceCount={activeAppliances.length}
+            peakLabel={peakLabel}
+            isInPeak={isInPeak}
+          />
 
           <Text style={[styles.sectionHeader, { color: colors.textSecondary }]}>
             APPLIANCES
           </Text>
-          <ApplianceList appliances={appliances} loading={loading} onToggle={toggleActive} />
+          <ApplianceList
+            appliances={appliances}
+            loading={loading}
+            onToggle={toggleActive}
+            onUpdate={updateAppliance}
+            onDelete={deleteAppliance}
+          />
 
           <View style={{ height: 80 }} />
         </ScrollView>
 
         {/* FAB */}
         <TouchableOpacity
-          style={[styles.fab, { backgroundColor: colors.fab, bottom: 30 + insets.bottom }]}
-          onPress={() => openAddAppliance()}
+          style={[
+            styles.fab,
+            { backgroundColor: colors.fab, bottom: 30 + insets.bottom },
+          ]}
+          onPress={openAddAppliance}
         >
           <Ionicons name="add" size={32} color={colors.textOnDark} />
         </TouchableOpacity>
@@ -119,6 +139,6 @@ export default function DashboardScreen() {
           onAdd={addAppliance}
         />
       </SafeAreaView>
-    </LinearGradient>
+    </GradientBackground>
   );
 }

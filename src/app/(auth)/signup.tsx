@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Text,
@@ -12,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import GradientBackground from "../../components/common/Gradientbackground";
 import { useTheme } from "../../context/ThemeContext";
 import { supabase } from "../../lib/supabase";
 import { globalStyles as styles } from "../../styles/styles";
@@ -33,17 +35,11 @@ export default function SignUpScreen() {
       return;
     }
     if (password !== confirmPassword) {
-      Alert.alert(
-        "Passwords do not match",
-        "Please ensure both passwords are exactly the same.",
-      );
+      Alert.alert("Passwords do not match", "Please ensure both passwords are exactly the same.");
       return;
     }
     if (password.length < 6) {
-      Alert.alert(
-        "Weak Password",
-        "Your password must be at least 6 characters long.",
-      );
+      Alert.alert("Weak Password", "Your password must be at least 6 characters long.");
       return;
     }
     setLoading(true);
@@ -60,156 +56,117 @@ export default function SignUpScreen() {
   }
 
   return (
-    <SafeAreaView
-      edges={["top", "bottom", "left", "right"]}
-      style={[styles.container, { backgroundColor: colors.bgPrimary }]}
-    >
-      <KeyboardAvoidingView
-        style={styles.keyboardView}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+    <GradientBackground>
+      <SafeAreaView
+        edges={["top", "bottom", "left", "right"]}
+        style={[styles.container, { backgroundColor: "transparent" }]}
       >
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: colors.textPrimary }]}>
-            Join Tipid.
-          </Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            Take control of your electricity bill.
-          </Text>
-        </View>
+        {/* BACK BUTTON */}
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={{ position: "absolute", top: 56, left: 24, zIndex: 10 }}
+        >
+          <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
+        </TouchableOpacity>
 
-        <View style={styles.formContainer}>
-          {/* Email */}
-          <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
-            Email
-          </Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                borderColor: colors.borderSecondary,
-                color: colors.textPrimary,
-                backgroundColor: colors.bgInput,
-              },
-            ]}
-            placeholder="Email address"
-            placeholderTextColor={colors.textSecondary}
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            editable={!loading}
-          />
-
-          {/* Password */}
-          <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
-            Password
-          </Text>
-          <View
-            style={[
-              styles.passwordContainer,
-              {
-                borderColor: colors.borderSecondary,
-                backgroundColor: colors.bgInput,
-              },
-            ]}
-          >
-            <TextInput
-              style={[styles.passwordInput, { color: colors.textPrimary }]}
-              placeholder="Password"
-              placeholderTextColor={colors.textSecondary}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-              editable={!loading}
+        <KeyboardAvoidingView
+          style={styles.keyboardView}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.header}>
+            <Image
+              source={require("../../../assets/tipid-logo-w-title.png")}
+              style={{ width: 180, height: 80 }}
+              resizeMode="contain"
             />
-            <TouchableOpacity
-              style={styles.eyeIcon}
-              onPress={() => setShowPassword(!showPassword)}
-            >
-              <Ionicons
-                name={showPassword ? "eye-off" : "eye"}
-                size={20}
-                color={colors.textSecondary}
-              />
-            </TouchableOpacity>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+              Take control of your electricity bill.
+            </Text>
           </View>
 
-          {/* Confirm Password */}
-          <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
-            Confirm Password
-          </Text>
-          <View
-            style={[
-              styles.passwordContainer,
-              {
-                borderColor: colors.borderSecondary,
-                backgroundColor: colors.bgInput,
-              },
-            ]}
-          >
+          <View style={styles.formContainer}>
+            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>Email</Text>
             <TextInput
-              style={[styles.passwordInput, { color: colors.textPrimary }]}
-              placeholder="Confirm Password"
-              placeholderTextColor={colors.textSecondary}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry={!showConfirmPassword}
-              editable={!loading}
-            />
-            <TouchableOpacity
-              style={styles.eyeIcon}
-              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-            >
-              <Ionicons
-                name={showConfirmPassword ? "eye-off" : "eye"}
-                size={20}
-                color={colors.textSecondary}
-              />
-            </TouchableOpacity>
-          </View>
-
-          {/* Create Account Button */}
-          <TouchableOpacity
-            style={[
-              styles.button,
-              styles.primaryButton,
-              { backgroundColor: colors.primary, marginTop: 10 },
-              loading && styles.disabledButton,
-            ]}
-            onPress={handleSignUp}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={[styles.buttonText, { color: colors.textOnDark }]}>
-                Create Account
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          {/* Back to Login Button */}
-          <TouchableOpacity
-            style={[
-              styles.button,
-              styles.secondaryButton,
-              { borderColor: colors.borderSecondary },
-              loading && styles.disabledButton,
-            ]}
-            onPress={() => router.back()}
-            disabled={loading}
-          >
-            <Text
               style={[
-                styles.secondaryButtonText,
-                { color: colors.textPrimary },
+                styles.input,
+                {
+                  borderColor: colors.borderSecondary,
+                  color: colors.textPrimary,
+                  backgroundColor: colors.bgInput,
+                },
+              ]}
+              placeholder="Email address"
+              placeholderTextColor={colors.textSecondary}
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              editable={!loading}
+            />
+
+            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>Password</Text>
+            <View
+              style={[
+                styles.passwordContainer,
+                { borderColor: colors.borderSecondary, backgroundColor: colors.bgInput },
               ]}
             >
-              Back to Login
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+              <TextInput
+                style={[styles.passwordInput, { color: colors.textPrimary }]}
+                placeholder="Password"
+                placeholderTextColor={colors.textSecondary}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                editable={!loading}
+              />
+              <TouchableOpacity style={styles.eyeIcon} onPress={() => setShowPassword(!showPassword)}>
+                <Ionicons name={showPassword ? "eye-off" : "eye"} size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>Confirm Password</Text>
+            <View
+              style={[
+                styles.passwordContainer,
+                { borderColor: colors.borderSecondary, backgroundColor: colors.bgInput },
+              ]}
+            >
+              <TextInput
+                style={[styles.passwordInput, { color: colors.textPrimary }]}
+                placeholder="Confirm Password"
+                placeholderTextColor={colors.textSecondary}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showConfirmPassword}
+                editable={!loading}
+              />
+              <TouchableOpacity style={styles.eyeIcon} onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
+                <Ionicons name={showConfirmPassword ? "eye-off" : "eye"} size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.button,
+                styles.primaryButton,
+                { backgroundColor: colors.primary, marginTop: 10 },
+                loading && styles.disabledButton,
+              ]}
+              onPress={handleSignUp}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={[styles.buttonText, { color: colors.textOnDark }]}>
+                  Create Account
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </GradientBackground>
   );
 }

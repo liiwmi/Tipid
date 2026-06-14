@@ -12,7 +12,6 @@ import {
 } from "react-native-safe-area-context";
 import ApplianceList from "../../components/dashboard/ApplianceList";
 import AddApplianceModal from "../../components/modals/AddApplianceModal";
-import { useAppContext } from "../../context/AppContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useAppliances } from "../../hooks/useAppliance";
 import {
@@ -22,14 +21,22 @@ import {
   spacing,
 } from "../../styles/theme";
 // 1. ADDED THE IMPORT HERE
-import { fetchOptimization } from "../../services/api";
 import { useState } from "react";
+import { fetchOptimization } from "../../services/api";
 
 export default function AppliancesScreen() {
   const { colors } = useTheme();
-  const { appliances, activeAppliances, loading, isOnline, addAppliance } =
-    useAppliances();
- const [addApplianceVisible, setAddApplianceVisible] = useState(false);
+  const {
+    appliances,
+    activeAppliances,
+    loading,
+    isOnline,
+    addAppliance,
+    updateAppliance,
+    deleteAppliance,
+    toggleActive,
+  } = useAppliances();
+  const [addApplianceVisible, setAddApplianceVisible] = useState(false);
   const openAddAppliance = () => setAddApplianceVisible(true);
   const closeAddAppliance = () => setAddApplianceVisible(false);
   const insets = useSafeAreaInsets();
@@ -190,7 +197,13 @@ export default function AppliancesScreen() {
         contentContainerStyle={screenStyles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <ApplianceList appliances={appliances} loading={loading} />
+        <ApplianceList
+          appliances={appliances}
+          loading={loading}
+          onToggle={toggleActive}
+          onUpdate={updateAppliance}
+          onDelete={deleteAppliance}
+        />
         <View style={{ height: 80 }} />
       </ScrollView>
 

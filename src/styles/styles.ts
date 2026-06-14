@@ -158,7 +158,8 @@ export const globalStyles = StyleSheet.create({
     fontWeight: fontWeights.bold,
     letterSpacing: 0.5,
   },
-  primaryButton: {},
+  primaryButton: {
+  },
   secondaryButton: {
     borderWidth: 1,
   },
@@ -209,11 +210,10 @@ export const globalStyles = StyleSheet.create({
   // ─────────────────────────────────────────
 
   chartContainer: {
-    height: 150,
-    marginBottom: spacing.xxl,
-    justifyContent: 'flex-end',
-    position: 'relative',
-  },
+  height: 150,
+  justifyContent: 'flex-end',
+  position: 'relative',
+},
   thresholdLine: {
     position: 'absolute',
     left: 0,

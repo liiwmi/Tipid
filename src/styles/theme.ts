@@ -189,7 +189,7 @@ export const darkColors: typeof lightColors = {
   forgotPasswordText: palette.blue,
 };
 
-export type AppColors = typeof lightColors & { forgotPasswordText: string };
+export type AppColors = typeof lightColors;
 
 // ─────────────────────────────────────────
 // GRADIENT

@@ -5,10 +5,11 @@ import { useTheme } from '../../context/ThemeContext';
 
 interface Props {
   applianceCount: number;
-  peakHour?: string;
+  peakLabel: string;
+  isInPeak: boolean;
 }
 
-export default function MetricsGrid({ applianceCount, peakHour = '2pm' }: Props) {
+export default function MetricsGrid({ applianceCount, peakLabel, isInPeak }: Props) {
   const { colors } = useTheme();
 
   return (
@@ -19,7 +20,17 @@ export default function MetricsGrid({ applianceCount, peakHour = '2pm' }: Props)
       </View>
       <View style={[styles.gridCard, { backgroundColor: colors.bgCard }]}>
         <Text style={[styles.cardTitle, { color: colors.textCardTitle }]}>Peak Hours</Text>
-        <Text style={[styles.gridValue, { color: colors.textPrimary }]}>{peakHour}</Text>
+        <Text style={[styles.gridValue, {
+          color: isInPeak ? colors.priorityHighText : colors.textPrimary,
+          fontSize: peakLabel.length > 6 ? 18 : 28,
+        }]}>
+          {peakLabel}
+        </Text>
+        {isInPeak && (
+          <Text style={{ fontSize: 10, color: colors.priorityHighText, marginTop: 2 }}>
+            ● ACTIVE NOW
+          </Text>
+        )}
       </View>
     </View>
   );

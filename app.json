@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "tipid-app",
-    "slug": "tipid-app",
+    "name": "Tipid",
+    "slug": "Tipid",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/tipid-logo.png",
@@ -16,10 +16,10 @@
         "foregroundImage": "./assets/tipid-logo.png",
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.kenshix.tipidapp"
     },
     "web": {
-      "output": "static",
       "favicon": "./assets/favicon.png"
     },
     "plugins": [

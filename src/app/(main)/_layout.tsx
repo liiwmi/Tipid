@@ -5,20 +5,19 @@ import { Drawer } from 'expo-router/drawer';
 import { Ionicons } from '@expo/vector-icons';
 import CustomDrawer from '../../components/drawer/CustomDrawer'; 
 
-
 export default function MainLayout() {
   return(
-  <GestureHandlerRootView style={{ flex: 1 }}>
-  <Drawer
-    drawerContent={(props) => <CustomDrawer {...props} />}
-    screenOptions={{
-      headerShown: false,
-      drawerPosition: 'right',
-      drawerStyle: {
-        width: '80%',
-      },
-    }}
-  >
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <Drawer
+        drawerContent={(props) => <CustomDrawer {...props} />}
+        screenOptions={{
+          headerShown: false,
+          drawerPosition: 'right',
+          drawerStyle: {
+            width: '85%', // Gives your inline settings controls ample room to breathe
+          },
+        }}
+      >
         <Drawer.Screen
           name="index"
           options={{
@@ -27,24 +26,31 @@ export default function MainLayout() {
           }}
         />
         <Drawer.Screen
-          name="profile"
+          name="appliances"
           options={{
-            drawerLabel: 'My Profile',
-            drawerIcon: ({ color }) => <Ionicons name="person-outline" size={24} color={color} />,
+            title: 'Appliances',
+            drawerIcon: ({ color }) => <Ionicons name="flash-outline" size={24} color={color} />,
           }}
         />
         <Drawer.Screen
           name="settings"
           options={{
-            drawerLabel: 'Settings & Sign Out',
+            drawerLabel: 'Settings & Preferences',
             drawerIcon: ({ color }) => <Ionicons name="settings-outline" size={24} color={color} />,
           }}
         />
         <Drawer.Screen
-        name="appliances"
+        name="profile"
         options={{
-          drawerLabel: 'Appliances',
-          drawerIcon: ({ color }) => <Ionicons name="flash-outline" size={24} color={color} />,
+          drawerLabel: 'My Profile',
+          drawerIcon: ({ color }) => <Ionicons name="person-outline" size={24} color={color} />,
+        }}
+      />
+      <Drawer.Screen
+        name="report"
+        options={{
+          drawerLabel: 'Algorithm Report',
+          drawerIcon: ({ color }) => <Ionicons name="bar-chart-outline" size={24} color={color} />,
         }}
       />
       </Drawer>

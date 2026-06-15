@@ -1,3 +1,4 @@
+// src/app/(auth)/signup.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
@@ -28,6 +29,7 @@ export default function SignUpScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   async function handleSignUp() {
     if (!email || !password || !confirmPassword) {
@@ -35,11 +37,24 @@ export default function SignUpScreen() {
       return;
     }
     if (password !== confirmPassword) {
-      Alert.alert("Passwords do not match", "Please ensure both passwords are exactly the same.");
+      Alert.alert(
+        "Passwords do not match",
+        "Please ensure both passwords are exactly the same.",
+      );
       return;
     }
     if (password.length < 6) {
-      Alert.alert("Weak Password", "Your password must be at least 6 characters long.");
+      Alert.alert(
+        "Weak Password",
+        "Your password must be at least 6 characters long.",
+      );
+      return;
+    }
+    if (!agreedToTerms) {
+      Alert.alert(
+        "Terms & Conditions",
+        "You must read and agree to the Terms and Conditions before creating an account.",
+      );
       return;
     }
     setLoading(true);
@@ -85,7 +100,9 @@ export default function SignUpScreen() {
           </View>
 
           <View style={styles.formContainer}>
-            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>Email</Text>
+            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
+              Email
+            </Text>
             <TextInput
               style={[
                 styles.input,
@@ -104,11 +121,16 @@ export default function SignUpScreen() {
               editable={!loading}
             />
 
-            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>Password</Text>
+            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
+              Password
+            </Text>
             <View
               style={[
                 styles.passwordContainer,
-                { borderColor: colors.borderSecondary, backgroundColor: colors.bgInput },
+                {
+                  borderColor: colors.borderSecondary,
+                  backgroundColor: colors.bgInput,
+                },
               ]}
             >
               <TextInput
@@ -120,16 +142,28 @@ export default function SignUpScreen() {
                 secureTextEntry={!showPassword}
                 editable={!loading}
               />
-              <TouchableOpacity style={styles.eyeIcon} onPress={() => setShowPassword(!showPassword)}>
-                <Ionicons name={showPassword ? "eye-off" : "eye"} size={20} color={colors.textSecondary} />
+              <TouchableOpacity
+                style={styles.eyeIcon}
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <Ionicons
+                  name={showPassword ? "eye-off" : "eye"}
+                  size={20}
+                  color={colors.textSecondary}
+                />
               </TouchableOpacity>
             </View>
 
-            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>Confirm Password</Text>
+            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
+              Confirm Password
+            </Text>
             <View
               style={[
                 styles.passwordContainer,
-                { borderColor: colors.borderSecondary, backgroundColor: colors.bgInput },
+                {
+                  borderColor: colors.borderSecondary,
+                  backgroundColor: colors.bgInput,
+                },
               ]}
             >
               <TextInput
@@ -141,16 +175,79 @@ export default function SignUpScreen() {
                 secureTextEntry={!showConfirmPassword}
                 editable={!loading}
               />
-              <TouchableOpacity style={styles.eyeIcon} onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-                <Ionicons name={showConfirmPassword ? "eye-off" : "eye"} size={20} color={colors.textSecondary} />
+              <TouchableOpacity
+                style={styles.eyeIcon}
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+              >
+                <Ionicons
+                  name={showConfirmPassword ? "eye-off" : "eye"}
+                  size={20}
+                  color={colors.textSecondary}
+                />
               </TouchableOpacity>
             </View>
+
+            {/* ── TERMS CHECKBOX ── */}
+            <TouchableOpacity
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                marginTop: 14,
+                marginBottom: 4,
+              }}
+              onPress={() => setAgreedToTerms((v) => !v)}
+              activeOpacity={0.7}
+            >
+              <View
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 6,
+                  borderWidth: 1.5,
+                  borderColor: agreedToTerms
+                    ? colors.primary
+                    : colors.borderSecondary,
+                  backgroundColor: agreedToTerms
+                    ? colors.primary
+                    : "transparent",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  flexShrink: 0,
+                }}
+              >
+                {agreedToTerms && (
+                  <Ionicons name="checkmark" size={14} color="#fff" />
+                )}
+              </View>
+              <Text
+                style={{
+                  flex: 1,
+                  fontSize: 13,
+                  color: colors.textSecondary,
+                  lineHeight: 18,
+                }}
+              >
+                I have read and agree to the{" "}
+                <Text
+                  style={{ color: colors.primary, fontWeight: "600" }}
+                  onPress={() => router.push("/(main)/terms" as any)}
+                >
+                  Terms and Conditions
+                </Text>
+              </Text>
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={[
                 styles.button,
                 styles.primaryButton,
-                { backgroundColor: colors.primary, marginTop: 10 },
+                {
+                  backgroundColor: agreedToTerms
+                    ? colors.primary
+                    : colors.borderSecondary,
+                  marginTop: 10,
+                },
                 loading && styles.disabledButton,
               ]}
               onPress={handleSignUp}

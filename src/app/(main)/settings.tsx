@@ -139,6 +139,9 @@ export default function SettingsScreen() {
     setTtsEnabled,
   } = useSettings();
 
+  const { profile } = useProfileContext();
+  const router = useRouter();
+
   // ── TTS PREVIEW ─────────────────────────────────────────
   const previewTts = async (enabled: boolean) => {
     await setTtsEnabled(enabled);
@@ -169,7 +172,6 @@ export default function SettingsScreen() {
             try {
               await Updates.reloadAsync();
             } catch {
-              // In Expo Go / dev, reloadAsync may not be available
               Alert.alert(
                 "Done",
                 "Please restart the app manually to see the change.",
@@ -198,7 +200,7 @@ export default function SettingsScreen() {
     { backgroundColor: colors.bgCard, borderColor: colors.borderDefault },
   ];
   const rowBorder = { borderBottomColor: colors.borderDefault };
-  const { profile } = useProfileContext();
+
   const initials = profile.displayName
     ? profile.displayName
         .split(" ")
@@ -207,7 +209,7 @@ export default function SettingsScreen() {
         .toUpperCase()
         .slice(0, 2)
     : "?";
-  const router = useRouter();
+
   return (
     <SafeAreaView
       edges={["top", "bottom", "left", "right"]}
@@ -222,7 +224,7 @@ export default function SettingsScreen() {
           Settings
         </Text>
 
-        {/* PROFILE */}
+        {/* ── PROFILE ── */}
         <SectionLabel label="Profile" />
         <TouchableOpacity
           style={cardStyle}
@@ -412,6 +414,7 @@ export default function SettingsScreen() {
         {/* ── ABOUT ── */}
         <SectionLabel label="About" />
         <View style={cardStyle}>
+          {/* Version */}
           <View style={[s.row, rowBorder]}>
             <View style={[s.rowIcon, { backgroundColor: colors.bgListIcon }]}>
               <Ionicons
@@ -430,6 +433,7 @@ export default function SettingsScreen() {
             </View>
           </View>
 
+          {/* Privacy Policy */}
           <View style={[s.row, rowBorder]}>
             <View style={[s.rowIcon, { backgroundColor: colors.bgListIcon }]}>
               <Ionicons
@@ -450,7 +454,32 @@ export default function SettingsScreen() {
             />
           </View>
 
-          <View style={[s.row, { borderBottomWidth: 0 }]}>
+          {/* Terms & Conditions */}
+          <View style={[s.row, rowBorder]}>
+            <View style={[s.rowIcon, { backgroundColor: colors.bgListIcon }]}>
+              <Ionicons
+                name="reader-outline"
+                size={18}
+                color={colors.textSecondary}
+              />
+            </View>
+            <TouchableOpacity
+              style={s.rowBody}
+              onPress={() => router.push("/(main)/terms" as any)}
+            >
+              <Text style={[s.rowTitle, { color: colors.textPrimary }]}>
+                Terms & Conditions
+              </Text>
+            </TouchableOpacity>
+            <Ionicons
+              name="chevron-forward"
+              size={16}
+              color={colors.textSecondary}
+            />
+          </View>
+
+          {/* Rate Tipid */}
+          <View style={[s.row, rowBorder]}>
             <View style={[s.rowIcon, { backgroundColor: colors.bgListIcon }]}>
               <Ionicons
                 name="heart-outline"
@@ -469,6 +498,8 @@ export default function SettingsScreen() {
               color={colors.textSecondary}
             />
           </View>
+
+          {/* Reset quota period */}
           <View style={[s.row, { borderBottomWidth: 0 }]}>
             <View style={[s.rowIcon, { backgroundColor: colors.bgListIcon }]}>
               <Ionicons
@@ -553,11 +584,7 @@ const s = StyleSheet.create({
     marginBottom: spacing.sm,
     marginLeft: spacing.xs,
   },
-  card: {
-    borderRadius: borderRadius.lg,
-    borderWidth: 0.5,
-    overflow: "hidden",
-  },
+  card: { borderRadius: borderRadius.lg, borderWidth: 0.5, overflow: "hidden" },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -575,14 +602,8 @@ const s = StyleSheet.create({
     flexShrink: 0,
   },
   rowBody: { flex: 1, minWidth: 0 },
-  rowTitle: {
-    fontSize: fontSizes.base,
-    fontWeight: fontWeights.semibold,
-  },
-  rowSub: {
-    fontSize: fontSizes.sm,
-    marginTop: 2,
-  },
+  rowTitle: { fontSize: fontSizes.base, fontWeight: fontWeights.semibold },
+  rowSub: { fontSize: fontSizes.sm, marginTop: 2 },
   inlineInput: {
     fontSize: fontSizes.sm,
     borderWidth: 1,
@@ -598,10 +619,7 @@ const s = StyleSheet.create({
     borderRadius: borderRadius.sm,
     borderWidth: 0.5,
   },
-  editBtnText: {
-    fontSize: fontSizes.sm,
-    fontWeight: fontWeights.semibold,
-  },
+  editBtnText: { fontSize: fontSizes.sm, fontWeight: fontWeights.semibold },
   // Profile
   profileRow: {
     flexDirection: "row",
@@ -616,19 +634,10 @@ const s = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  avatarInitials: {
-    fontSize: fontSizes.base,
-    fontWeight: fontWeights.bold,
-  },
+  avatarInitials: { fontSize: fontSizes.base, fontWeight: fontWeights.bold },
   profileInfo: { flex: 1 },
-  profileName: {
-    fontSize: fontSizes.base,
-    fontWeight: fontWeights.bold,
-  },
-  profileEmail: {
-    fontSize: fontSizes.sm,
-    marginTop: 2,
-  },
+  profileName: { fontSize: fontSizes.base, fontWeight: fontWeights.bold },
+  profileEmail: { fontSize: fontSizes.sm, marginTop: 2 },
   // Font seg
   segControl: {
     flexDirection: "row",
@@ -645,11 +654,7 @@ const s = StyleSheet.create({
     borderWidth: 0.5,
   },
   // About
-  versionBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 20,
-  },
+  versionBadge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20 },
   versionBadgeText: {
     fontSize: fontSizes.sm,
     fontWeight: fontWeights.semibold,
@@ -666,10 +671,7 @@ const s = StyleSheet.create({
     paddingVertical: 14,
     marginTop: spacing.xl,
   },
-  signOutText: {
-    fontSize: fontSizes.base,
-    fontWeight: fontWeights.semibold,
-  },
+  signOutText: { fontSize: fontSizes.base, fontWeight: fontWeights.semibold },
   footer: {
     textAlign: "center",
     fontSize: fontSizes.xs,

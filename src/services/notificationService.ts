@@ -109,8 +109,8 @@ export async function checkAndFireNotifications(
     const alreadyFired = await hasAlreadyFiredToday("quota_75");
 
     if (!alreadyFired) {
-      // Run the optimizer to find what should stay on
       const budget = dailyQuota * electricityRate;
+      const currentHour = new Date().getHours();
       const result = runOptimization(
         appliances,
         budget,
@@ -118,53 +118,50 @@ export async function checkAndFireNotifications(
         currentHour,
       );
 
-      // Pruning candidates = active appliances NOT in the recommended set
-      const recommendedNames = new Set(result.turn_on);
+      // Candidates = active appliances the solver excluded
+      const recommendedSet = new Set(result.turn_on);
       const pruneCandidates = appliances
-        .filter((a) => a.is_active && !recommendedNames.has(a.name))
-        .sort((a, b) => a.watts * a.hours_per_day - b.watts * b.hours_per_day)
+        .filter((a) => a.is_active && !recommendedSet.has(a.id))
         .slice(0, 3);
 
-      // Persist candidates so the UI (ApplianceList, Report) can highlight them
       await AsyncStorage.setItem(
         PRUNE_CANDIDATES_KEY,
         JSON.stringify(pruneCandidates),
       );
 
-      // Build the notification body
       const projectedText =
         projectedMinutesRemaining !== null
           ? ` Quota reached in ~${Math.round(projectedMinutesRemaining)} min.`
           : "";
 
+      // Use rich recommendation data for notification body
+      const richRecs = result.recommendations
+        .filter((r) => r.action === "turn_off")
+        .slice(0, 3);
+
       const candidateText =
-        pruneCandidates.length > 0
-          ? ` Consider turning off: ${pruneCandidates
-              .map((a) => {
-                const applianceKw = a.watts / 1000;
-                const remainingKwh = dailyQuota - totalDailyKwh;
-                const currentTotalKw =
-                  appliances
-                    .filter((x) => x.is_active)
-                    .reduce((sum, x) => sum + x.watts, 0) / 1000;
-                const hoursRemainingNow =
-                  currentTotalKw > 0 ? remainingKwh / currentTotalKw : 0;
-                const newTotalKw = Math.max(
-                  currentTotalKw - applianceKw,
-                  0.001,
-                );
-                const hoursRemainingAfter = remainingKwh / newTotalKw;
-                const hoursGained = hoursRemainingAfter - hoursRemainingNow;
-                const kwhSaved = applianceKw * hoursGained;
-                const costSaved = kwhSaved * electricityRate;
-                return `${a.name} (saves ₱${costSaved.toFixed(2)}, +${(hoursGained * 60).toFixed(0)}min)`;
-              })
+        richRecs.length > 0
+          ? ` Suggestions: ${richRecs
+              .map(
+                (r) =>
+                  `${r.applianceName} (saves ₱${r.estimatedCostSaved.toFixed(2)}, +${Math.round(r.estimatedMinutesGained)}min)`,
+              )
               .join(", ")}.`
           : " Check your appliance usage.";
 
+      await appendOptimizationSession({
+        id: `session_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        quotaPct: pct,
+        projectedMinutesRemaining,
+        candidates: pruneCandidates.map((a) => a.name),
+        recommendedOn: result.turn_on,
+        totalPriorityValue: result.total_priority_value,
+      });
+
       await fire(
         "quota_75",
-        "75% of Daily Quota Used",
+        "⚠️ 75% of Daily Quota Used",
         `You've used ${pct.toFixed(0)}% of your ${dailyQuota.toFixed(1)} kWh quota.${projectedText}${candidateText}`,
       );
     }

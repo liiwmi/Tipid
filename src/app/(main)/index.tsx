@@ -21,10 +21,11 @@ import { useAppliances } from "../../hooks/useAppliance";
 import { useDailyUsage } from "../../hooks/useDailyUsage";
 import { usePeakHour } from "../../hooks/usePeakHour";
 import { useQuotaProjection } from "../../hooks/useQuotaProjection";
+import { useRecommendations } from "../../hooks/useRecommendation";
+import { useRuntimeTracker } from "../../hooks/useRuntimeTracker";
 import { globalStyles as styles } from "../../styles/styles";
 
 export default function DashboardScreen() {
-  const { electricityRate, dailyQuota } = useSettings();
   const { projectedMinutesRemaining, recalculate, initPeriod } =
     useQuotaProjection();
   const navigation = useNavigation();
@@ -57,6 +58,10 @@ export default function DashboardScreen() {
         ? "Good Afternoon,"
         : "Good Evening,";
 
+  const { recommendations, schedule, runRecommendations } =
+    useRecommendations();
+  const { checkAutoShutoff } = useRuntimeTracker();
+  const { electricityRate, dailyQuota, isLoaded: settingsLoaded } = useSettings();
   // Init the quota period anchor on first load
   useEffect(() => {
     initPeriod(totalDailyKwh);
@@ -64,8 +69,8 @@ export default function DashboardScreen() {
 
   // Recalculate projection whenever consumption changes
   useEffect(() => {
-  recalculate(totalDailyKwh, dailyQuota, appliances);
-}, [totalDailyKwh, dailyQuota, appliances]);
+    recalculate(totalDailyKwh, dailyQuota, appliances);
+  }, [totalDailyKwh, dailyQuota, appliances]);
 
   // Check and fire notifications whenever consumption changes
   useEffect(() => {
@@ -81,7 +86,20 @@ export default function DashboardScreen() {
       );
     }
   }, [totalDailyKwh]);
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const remainingKwh = dailyQuota - totalDailyKwh;
+      await checkAutoShutoff(appliances, remainingKwh, updateAppliance);
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [appliances, totalDailyKwh, dailyQuota]);
 
+  // Run recommendations whenever consumption changes
+  useEffect(() => {
+    if (appliances.length === 0 || !settingsLoaded) return;
+    const budget = dailyQuota * electricityRate;
+    runRecommendations(appliances, budget, electricityRate);
+  }, [totalDailyKwh, appliances.length]);
   return (
     <GradientBackground>
       <SafeAreaView

@@ -11,4 +11,7 @@ export interface Appliance {
   original_priority: 'low' | 'medium' | 'high' | null;
   is_active: boolean;
   created_at: string;
+   max_runtime_hours: number | null;   // hard cap per day
+  runtime_used_today: number;         // hours used so far today
+  auto_shutoff: boolean; 
 }

@@ -350,4 +350,11 @@ export const globalStyles = StyleSheet.create({
   fontSize: fontSizes.md,
   fontWeight: fontWeights.semibold,
 },
+
+pruneAlert: {
+  borderWidth: 1,
+  borderRadius: 12,
+  padding: 12,
+  marginBottom: 12,
+},
 });

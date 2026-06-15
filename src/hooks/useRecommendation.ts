@@ -1,10 +1,15 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useCallback, useEffect, useState } from 'react';
-import { runOptimization, ApplianceRecommendation, ScheduleEntry, OptimizationResult } from '../services/optimizer';
-import { Appliance } from '../types/appliance';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useCallback, useEffect, useState } from "react";
+import {
+  ApplianceRecommendation,
+  OptimizationResult,
+  runOptimization,
+  ScheduleEntry,
+} from "../services/optimizer";
+import { Appliance } from "../types/appliance";
 
-const RECOMMENDATIONS_KEY = '@tipid_recommendations';
-const SCHEDULE_KEY = '@tipid_schedule';
+const RECOMMENDATIONS_KEY = "@tipid_recommendations";
+const SCHEDULE_KEY = "@tipid_schedule";
 
 interface RecommendationState {
   recommendations: ApplianceRecommendation[];
@@ -20,7 +25,9 @@ interface RecommendationState {
 }
 
 export function useRecommendations(): RecommendationState {
-  const [recommendations, setRecommendations] = useState<ApplianceRecommendation[]>([]);
+  const [recommendations, setRecommendations] = useState<
+    ApplianceRecommendation[]
+  >([]);
   const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
   const [totalPriorityValue, setTotalPriorityValue] = useState(0);
@@ -37,38 +44,55 @@ export function useRecommendations(): RecommendationState {
           setLastRunAt(parsed.lastRunAt ?? null);
           setTotalPriorityValue(parsed.totalPriorityValue ?? 0);
         }
-        if (schRaw) setSchedule(JSON.parse(schRaw));
+        if (schRaw) {
+          const parsedSchedule = JSON.parse(schRaw);
+          const sanitized = (parsedSchedule as ScheduleEntry[]).map((e) => ({
+            ...e,
+            allowedHours: e.allowedHours ?? 0,
+          }));
+          setSchedule(sanitized);
+        }
       } catch {}
     })();
   }, []);
 
-  const runRecommendations = useCallback(async (
-    appliances: Appliance[],
-    budget: number,
-    electricityRate: number,
-  ): Promise<OptimizationResult> => {
-    const currentHour = new Date().getHours();
-    const result = runOptimization(appliances, budget, electricityRate, currentHour);
+  const runRecommendations = useCallback(
+    async (
+      appliances: Appliance[],
+      budget: number,
+      electricityRate: number,
+      currentKwh: number = 0,
+    ): Promise<OptimizationResult> => {
+      const currentHour = new Date().getHours();
+      const result = runOptimization(
+        appliances,
+        budget,
+        electricityRate,
+        currentHour,
+        currentKwh,
+      );
 
-    const now = new Date().toISOString();
-    setRecommendations(result.recommendations);
-    setSchedule(result.schedule);
-    setLastRunAt(now);
-    setTotalPriorityValue(result.total_priority_value);
+      const now = new Date().toISOString();
+      setRecommendations(result.recommendations);
+      setSchedule(result.schedule);
+      setLastRunAt(now);
+      setTotalPriorityValue(result.total_priority_value);
 
-    // Persist
-    await AsyncStorage.setItem(
-      RECOMMENDATIONS_KEY,
-      JSON.stringify({
-        recommendations: result.recommendations,
-        lastRunAt: now,
-        totalPriorityValue: result.total_priority_value,
-      }),
-    );
-    await AsyncStorage.setItem(SCHEDULE_KEY, JSON.stringify(result.schedule));
+      // Persist
+      await AsyncStorage.setItem(
+        RECOMMENDATIONS_KEY,
+        JSON.stringify({
+          recommendations: result.recommendations,
+          lastRunAt: now,
+          totalPriorityValue: result.total_priority_value,
+        }),
+      );
+      await AsyncStorage.setItem(SCHEDULE_KEY, JSON.stringify(result.schedule));
 
-    return result;
-  }, []);
+      return result;
+    },
+    [],
+  );
 
   const clearRecommendations = useCallback(async () => {
     setRecommendations([]);

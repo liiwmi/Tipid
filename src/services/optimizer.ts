@@ -12,7 +12,6 @@ export interface OptimizableAppliance {
   auto_shutoff: boolean;
 }
 
-// High = 3 (Essential), Medium = 2 (Adjustable), Low = 1 (Discretionary)
 const PRIORITY_MAP: Record<string, number> = {
   high: 3,
   medium: 2,
@@ -20,14 +19,13 @@ const PRIORITY_MAP: Record<string, number> = {
 };
 const PRIORITY_HIGH = 3;
 
-// ── Types ─────────────────────────────────────────────────────────────────────
 export interface SolverItem {
   name: string;
   watts: number;
   hours_per_day: number;
   priority: number;
-  cost: number; // ₱/day
-  scaledUp: boolean; // true if medium→high during peak
+  cost: number;
+  scaledUp: boolean;
 }
 
 export interface PruneStep {
@@ -63,12 +61,12 @@ export interface AlgorithmReport {
 export interface ApplianceRecommendation {
   applianceId: string;
   applianceName: string;
-  action: 'turn_on' | 'turn_off';
+  action: "turn_on" | "turn_off";
   reason: string;
   estimatedKwhSaved: number;
   estimatedCostSaved: number;
   estimatedMinutesGained: number;
-  priority: 'low' | 'medium' | 'high';
+  priority: "low" | "medium" | "high";
   watts: number;
 }
 
@@ -94,9 +92,7 @@ export interface OptimizationResult {
   report: AlgorithmReport;
 }
 
-// ── Adaptive Priority Scaling ───────────────────────────────────────
-//         "Medium Priority appliances are adaptively UPGRADED TO HIGH PRIORITY
-//         during user-defined Peak Hours" — hard upgrade, not a multiplier.
+// ── Adaptive Priority Scaling ─────────────────────────────────────────────────
 function applyPriorityScaling(
   items: SolverItem[],
   appliances: OptimizableAppliance[],
@@ -104,13 +100,13 @@ function applyPriorityScaling(
 ): SolverItem[] {
   return items.map((item, i) => {
     const appliance = appliances[i];
-    if (item.priority !== 2) return item; // only scale Medium
+    if (item.priority !== 2) return item;
 
     const start = appliance.peak_start
-      ? parseInt(appliance.peak_start.split(':')[0], 10)
+      ? parseInt(appliance.peak_start.split(":")[0], 10)
       : null;
     const end = appliance.peak_end
-      ? parseInt(appliance.peak_end.split(':')[0], 10)
+      ? parseInt(appliance.peak_end.split(":")[0], 10)
       : null;
 
     const inPeak =
@@ -125,12 +121,9 @@ function applyPriorityScaling(
   });
 }
 
-// ── Merge Sort by Value Density ─────────────────────────────────────
-//         "sorted according to their Priority-to-Cost ratio from highest to lowest.
-//         Time complexity: O(n log n)"
+// ── Merge Sort by Value Density ───────────────────────────────────────────────
 function mergeSort(items: SolverItem[]): SolverItem[] {
   if (items.length <= 1) return items;
-
   const mid = Math.floor(items.length / 2);
   const left = mergeSort(items.slice(0, mid));
   const right = mergeSort(items.slice(mid));
@@ -139,11 +132,13 @@ function mergeSort(items: SolverItem[]): SolverItem[] {
 
 function merge(left: SolverItem[], right: SolverItem[]): SolverItem[] {
   const result: SolverItem[] = [];
-  let i = 0, j = 0;
+  let i = 0,
+    j = 0;
 
   while (i < left.length && j < right.length) {
-    const leftDensity  = left[i].cost  > 0 ? left[i].priority  / left[i].cost  : 0;
-    const rightDensity = right[j].cost > 0 ? right[j].priority / right[j].cost : 0;
+    const leftDensity = left[i].cost > 0 ? left[i].priority / left[i].cost : 0;
+    const rightDensity =
+      right[j].cost > 0 ? right[j].priority / right[j].cost : 0;
 
     if (leftDensity >= rightDensity) {
       result.push(left[i++]);
@@ -155,10 +150,13 @@ function merge(left: SolverItem[], right: SolverItem[]): SolverItem[] {
   return [...result, ...left.slice(i), ...right.slice(j)];
 }
 
-// ── DFS Branch and Bound ────────────────────────────────────────────
-//         "Depth-First Search strategy — searches one branch fully before the next.
-//         High Priority items are forced-included.
-//         Budget constraint prunes the branch the moment cost exceeds threshold."
+// ── DFS Branch and Bound ──────────────────────────────────────────────────────
+// NOTE: By the time items reach this solver, all PRIORITY_HIGH items have
+// already been pre-included by runOptimization (see "Stage C" below) and
+// removed from `sortedItems`. This solver therefore only ever sees
+// medium/low priority candidates competing for the *remaining* budget —
+// high-priority items can no longer be pruned, by construction, not just
+// by the (insufficient) include/exclude skip below.
 interface StackFrame {
   index: number;
   cumCost: number;
@@ -192,7 +190,6 @@ function solveKnapsack(
 
     if (nodesExplored > MAX_NODES) break;
 
-    // Base case: all items considered
     if (index === n) {
       if (cumProfit > maxProfit) {
         maxProfit = cumProfit;
@@ -202,39 +199,58 @@ function solveKnapsack(
     }
 
     const item = sortedItems[index];
-    const isHighPriority = item.priority === PRIORITY_HIGH;
-    const newCost   = cumCost   + item.cost;
+    const newCost = cumCost + item.cost;
     const newProfit = cumProfit + item.priority;
 
-    // ── INCLUDE ──────────────────────────────────────────────────────────────
     if (newCost <= budget) {
       pruningLog.push({
         appliance: item.name,
         pruned: false,
         cum_cost: parseFloat(newCost.toFixed(6)),
         budget,
-        action: 'included',
+        action: "included",
       });
 
-      // Push EXCLUDE branch first (so INCLUDE is processed first via LIFO)
-      // High priority items have NO exclude branch — paper mandates inclusion
-      if (!isHighPriority) {
-        stack.push({ index: index + 1, cumCost, cumProfit, selected: [...selected] });
-      }
-      stack.push({ index: index + 1, cumCost: newCost, cumProfit: newProfit, selected: [...selected, item.name] });
+      // Explore both including and excluding this item — medium/low
+      // priority items remain optimizable (subject to true knapsack
+      // tradeoffs).
+      stack.push({
+        index: index + 1,
+        cumCost,
+        cumProfit,
+        selected: [...selected],
+      });
+      stack.push({
+        index: index + 1,
+        cumCost: newCost,
+        cumProfit: newProfit,
+        selected: [...selected, item.name],
+      });
     } else {
-      // Budget exceeded — prune this branch
       pruningLog.push({
         appliance: item.name,
         pruned: true,
         cum_cost: parseFloat(newCost.toFixed(6)),
         budget,
-        action: 'pruned — budget exceeded',
+        action: "pruned — budget exceeded",
       });
 
-      if (!isHighPriority) {
-        stack.push({ index: index + 1, cumCost, cumProfit, selected: [...selected] });
-      }
+      // Item can't fit — only the exclude branch survives.
+      stack.push({
+        index: index + 1,
+        cumCost,
+        cumProfit,
+        selected: [...selected],
+      });
+    }
+
+    // Track the best "exclude everything from here" baseline too, since
+    // index === n is the only place we currently record maxProfit. This
+    // is already covered by pushing the exclude branch above, which will
+    // eventually reach index === n and get compared.
+    if (cumProfit > maxProfit) {
+      maxProfit = cumProfit;
+      bestSelected = [...selected];
     }
   }
 
@@ -242,18 +258,30 @@ function solveKnapsack(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function getEffectiveHours(appliance: OptimizableAppliance, currentHour: number): number {
+
+// How many hours this appliance still needs to run today
+function getRemainingHours(
+  appliance: OptimizableAppliance,
+  currentHour: number,
+): number {
   const hoursLeftInDay = 24 - currentHour;
-  const base = appliance.hours_per_day;
-  const runtimeRemaining =
+  const hoursStillNeeded = Math.max(
+    appliance.hours_per_day - (appliance.runtime_used_today ?? 0),
+    0,
+  );
+  const maxAllowed =
     appliance.max_runtime_hours !== null
-      ? Math.max(appliance.max_runtime_hours - appliance.runtime_used_today, 0)
-      : base;
-  return Math.min(base, runtimeRemaining, hoursLeftInDay);
+      ? Math.max(
+          appliance.max_runtime_hours - (appliance.runtime_used_today ?? 0),
+          0,
+        )
+      : hoursStillNeeded;
+
+  return Math.min(hoursStillNeeded, maxAllowed, hoursLeftInDay);
 }
 
 function buildTurnOffReason(a: OptimizableAppliance, inPeak: boolean): string {
-  if (a.priority === 'low') {
+  if (a.priority === "low") {
     return `${a.name} is low priority (${a.watts}W). Turning it off frees budget for higher priority appliances.`;
   }
   if (a.watts > 500) {
@@ -265,37 +293,88 @@ function buildTurnOffReason(a: OptimizableAppliance, inPeak: boolean): string {
 // ── Main Export ───────────────────────────────────────────────────────────────
 export function runOptimization(
   appliances: OptimizableAppliance[],
-  budget: number,          // daily budget in ₱
-  electricityRate: number, // ₱ per kWh
+  budget: number, // daily budget in ₱ (dailyQuota × electricityRate)
+  electricityRate: number,
   currentHour: number,
+  currentKwh: number = 0, // actual kWh consumed today from the energy ledger
 ): OptimizationResult {
-  // Only consider active appliances
+  // How much budget is already spent by actual consumption today
+  const spentBudget = currentKwh * electricityRate;
+  // Remaining budget the algorithm has to work with
+  const remainingBudget = Math.max(budget - spentBudget, 0);
+
   const active = appliances.filter((a) => a.is_active);
 
-  // Build solver items — cost is ₱/day
-  const rawItems: SolverItem[] = active.map((a) => ({
-    name: a.name,
-    watts: a.watts,
-    hours_per_day: a.hours_per_day,
-    priority: PRIORITY_MAP[a.priority] ?? 1,
-    cost: (a.watts / 1000) * a.hours_per_day * electricityRate,
-    scaledUp: false,
-  }));
+  // Build solver items using REMAINING hours needed today, not full hours_per_day
+  // This means an AC that has already run 4 of its 8 hours only costs 4h worth
+  const rawItems: SolverItem[] = active.map((a) => {
+    const hoursRemaining = getRemainingHours(a, currentHour);
+    return {
+      name: a.name,
+      watts: a.watts,
+      hours_per_day: hoursRemaining,
+      priority: PRIORITY_MAP[a.priority] ?? 1,
+      // Cost = how much it will cost to finish running today
+      cost: (a.watts / 1000) * hoursRemaining * electricityRate,
+      scaledUp: false,
+    };
+  });
 
   // Stage A: Adaptive Priority Scaling
   const scaledItems = applyPriorityScaling(rawItems, active, currentHour);
   const peakHourActive = scaledItems.some((i) => i.scaledUp);
 
-  // Stage B: Merge Sort by value density
-  const sortedItems = mergeSort(
+  // Stage B: Merge Sort — filter zero-cost/zero-priority items first
+  const sortedAll = mergeSort(
     scaledItems.filter((i) => i.cost > 0 && i.priority > 0),
   );
 
-  // Stage C: DFS Branch and Bound
-  const { bestSelected, maxProfit, pruningLog, nodesExplored } = solveKnapsack(
-    sortedItems,
-    budget,
+  // ── Stage B.5: HARD HIGH-PRIORITY SAFEGUARD ───────────────────────────────
+  // High-priority appliances (priority === PRIORITY_HIGH, including items
+  // scaled up to High during peak hours) are pre-included before the
+  // knapsack runs at all. Their cost is subtracted from the budget up
+  // front, and they are removed from the candidate pool so the DFS
+  // branch-and-bound can never explore a branch that excludes them —
+  // even if the budget is fully consumed by high-priority items alone.
+  const highPriorityItems = sortedAll.filter(
+    (i) => i.priority === PRIORITY_HIGH,
   );
+  const remainingItems = sortedAll.filter((i) => i.priority !== PRIORITY_HIGH);
+
+  const highPriorityCost = highPriorityItems.reduce(
+    (sum, i) => sum + i.cost,
+    0,
+  );
+  const highPriorityProfit = highPriorityItems.reduce(
+    (sum, i) => sum + i.priority,
+    0,
+  );
+
+  // Budget left for medium/low priority items after high-priority items
+  // are guaranteed their share. Clamped to >= 0 — if high-priority items
+  // alone exceed the budget, no further items can be added, but the
+  // high-priority items themselves are still always "on".
+  const knapsackBudget = Math.max(remainingBudget - highPriorityCost, 0);
+
+  // Stage C: DFS Branch and Bound — runs ONLY on medium/low priority items
+  const {
+    bestSelected: bestFromKnapsack,
+    maxProfit: profitFromKnapsack,
+    pruningLog,
+    nodesExplored,
+  } = solveKnapsack(remainingItems, knapsackBudget);
+
+  // Merge: high-priority items are unconditionally selected, plus whatever
+  // the knapsack chose from the remaining medium/low priority pool.
+  const bestSelected = [
+    ...highPriorityItems.map((i) => i.name),
+    ...bestFromKnapsack,
+  ];
+  const maxProfit = highPriorityProfit + profitFromKnapsack;
+
+  // Combine for reporting purposes (sortedAppliances should reflect the
+  // full sorted order, with is_on reflecting the merged selection)
+  const sortedItems = sortedAll;
 
   // Stage D: Decision Mapping
   const selectedSet = new Set(bestSelected);
@@ -309,41 +388,56 @@ export function runOptimization(
     is_on: selectedSet.has(item.name),
   }));
 
-  const turn_on  = bestSelected;
-  const turn_off = active.filter((a) => !selectedSet.has(a.name)).map((a) => a.id);
-
-  const onAppliances   = sortedAppliances.filter((a) => a.is_on);
-  const totalPossible  = Math.pow(2, sortedItems.length);
+  const turn_on = bestSelected;
+  const turn_off = active
+    .filter((a) => !selectedSet.has(a.name))
+    .map((a) => a.id);
+  const onAppliances = sortedAppliances.filter((a) => a.is_on);
+  const totalPossible = Math.pow(2, remainingItems.length);
 
   // ── Derived metrics ───────────────────────────────────────────────────────
-  const budgetKwh      = budget / electricityRate;
-  const totalDailyKwh  = appliances.reduce((sum, a) => sum + (a.watts * a.hours_per_day) / 1000, 0);
-  const remainingKwh   = Math.max(budgetKwh - totalDailyKwh, 0);
+  // remainingKwh = how much kWh is left before quota is hit
+  const budgetKwh = budget / electricityRate;
+  const remainingKwh = Math.max(budgetKwh - currentKwh, 0);
+
+  // Only count active watts for projection
   const totalActiveWatts = active.reduce((sum, a) => sum + a.watts, 0);
-  const totalActiveKw  = totalActiveWatts / 1000;
-  const projectedMinutesRemaining = totalActiveKw > 0 ? (remainingKwh / totalActiveKw) * 60 : null;
+  const totalActiveKw = totalActiveWatts / 1000;
+  const projectedMinutesRemaining =
+    totalActiveKw > 0 ? (remainingKwh / totalActiveKw) * 60 : null;
 
   // ── Recommendations ───────────────────────────────────────────────────────
   const recommendations: ApplianceRecommendation[] = [];
 
   for (const a of active) {
     if (!selectedSet.has(a.name)) {
-      const newTotalKw    = Math.max(totalActiveKw - a.watts / 1000, 0.001);
-      const newProjected  = totalActiveKw > 0 ? (remainingKwh / newTotalKw) * 60 : null;
-      const minutesGained = newProjected !== null && projectedMinutesRemaining !== null
-        ? Math.max(newProjected - projectedMinutesRemaining, 0)
-        : 0;
-      const hoursGained   = minutesGained / 60;
-      const kwhSaved      = (a.watts / 1000) * hoursGained;
-      const costSaved     = kwhSaved * electricityRate;
-      const inPeak        = !!(a.peak_start && a.peak_end &&
-        currentHour >= parseInt(a.peak_start.split(':')[0], 10) &&
-        currentHour < parseInt(a.peak_end.split(':')[0], 10));
+      // High-priority appliances are never recommended for shutoff —
+      // they are always in selectedSet by construction, so this branch
+      // is unreachable for them, but the guard documents the invariant.
+      if ((PRIORITY_MAP[a.priority] ?? 1) === PRIORITY_HIGH) continue;
+
+      // How much quota time would be gained by turning this off
+      const newTotalKw = Math.max(totalActiveKw - a.watts / 1000, 0.001);
+      const newProjected =
+        totalActiveKw > 0 ? (remainingKwh / newTotalKw) * 60 : null;
+      const minutesGained =
+        newProjected !== null && projectedMinutesRemaining !== null
+          ? Math.max(newProjected - projectedMinutesRemaining, 0)
+          : 0;
+      const hoursGained = minutesGained / 60;
+      const kwhSaved = (a.watts / 1000) * hoursGained;
+      const costSaved = kwhSaved * electricityRate;
+      const inPeak = !!(
+        a.peak_start &&
+        a.peak_end &&
+        currentHour >= parseInt(a.peak_start.split(":")[0], 10) &&
+        currentHour < parseInt(a.peak_end.split(":")[0], 10)
+      );
 
       recommendations.push({
         applianceId: a.id,
         applianceName: a.name,
-        action: 'turn_off',
+        action: "turn_off",
         reason: buildTurnOffReason(a, inPeak),
         estimatedKwhSaved: kwhSaved,
         estimatedCostSaved: costSaved,
@@ -354,17 +448,17 @@ export function runOptimization(
     }
   }
 
-  // Recommend turning ON inactive appliances that fit budget
+  // Recommend turning ON inactive appliances that still fit in remaining budget
   const inactive = appliances.filter((a) => !a.is_active);
   for (const a of inactive) {
-    const effectiveHours = getEffectiveHours(a, currentHour);
-    const projectedKwh   = (a.watts / 1000) * effectiveHours;
+    const hoursRemaining = getRemainingHours(a, currentHour);
+    const projectedKwh = (a.watts / 1000) * hoursRemaining;
     if (projectedKwh <= remainingKwh) {
       recommendations.push({
         applianceId: a.id,
         applianceName: a.name,
-        action: 'turn_on',
-        reason: `${a.name} fits within remaining budget. ${a.priority} priority.`,
+        action: "turn_on",
+        reason: `${a.name} fits within remaining budget (needs ${projectedKwh.toFixed(2)} kWh, ${remainingKwh.toFixed(2)} kWh left). ${a.priority} priority.`,
         estimatedKwhSaved: 0,
         estimatedCostSaved: 0,
         estimatedMinutesGained: 0,
@@ -375,29 +469,33 @@ export function runOptimization(
   }
 
   recommendations.sort((a, b) => {
-    if (a.action !== b.action) return a.action === 'turn_off' ? -1 : 1;
+    if (a.action !== b.action) return a.action === "turn_off" ? -1 : 1;
     return b.estimatedKwhSaved - a.estimatedKwhSaved;
   });
 
   // ── Schedule ──────────────────────────────────────────────────────────────
   const schedule: ScheduleEntry[] = appliances.map((a) => {
-    const effectiveHours = getEffectiveHours(a, currentHour);
-    const willExceed     = projectedMinutesRemaining !== null
-      ? effectiveHours * 60 > projectedMinutesRemaining
-      : false;
+    const hoursRemaining = getRemainingHours(a, currentHour);
+    const willExceed =
+      projectedMinutesRemaining !== null
+        ? hoursRemaining * 60 > projectedMinutesRemaining
+        : false;
 
     let shutoffTime: string | null = null;
     if (willExceed && projectedMinutesRemaining !== null) {
       const d = new Date(Date.now() + projectedMinutesRemaining * 60_000);
-      shutoffTime = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+      shutoffTime = `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
     }
 
     return {
       applianceId: a.id,
       applianceName: a.name,
       watts: a.watts,
-      allowedHours: effectiveHours,
-      remainingHours: Math.max((a.max_runtime_hours ?? a.hours_per_day) - a.runtime_used_today, 0),
+      allowedHours: hoursRemaining,
+      remainingHours: Math.max(
+        (a.max_runtime_hours ?? a.hours_per_day) - (a.runtime_used_today ?? 0),
+        0,
+      ),
       willExceedQuota: willExceed,
       recommendedShutoffTime: shutoffTime,
     };
@@ -415,8 +513,10 @@ export function runOptimization(
     report: {
       sortedAppliances,
       pruningLog,
-      totalCostOnAppliances: parseFloat(onAppliances.reduce((s, a) => s + a.cost_per_day, 0).toFixed(6)),
-      budgetThreshold: budget,
+      totalCostOnAppliances: parseFloat(
+        onAppliances.reduce((s, a) => s + a.cost_per_day, 0).toFixed(6),
+      ),
+      budgetThreshold: knapsackBudget,
       nodesExplored,
       totalPossibleNodes: totalPossible,
       totalWattageOn: onAppliances.reduce((s, a) => s + a.watts, 0),

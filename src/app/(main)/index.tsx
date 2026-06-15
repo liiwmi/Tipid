@@ -168,7 +168,59 @@ export default function DashboardScreen() {
             peakLabel={peakLabel}
             isInPeak={isInPeak}
           />
-
+          {recommendations.filter((r) => r.action === "turn_off").length >
+            0 && (
+            <View
+              style={[
+                styles.pruneAlert,
+                {
+                  backgroundColor: colors.priorityHighBg,
+                  borderColor: colors.priorityHighText,
+                },
+              ]}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 6,
+                }}
+              >
+                <Ionicons
+                  name="flash"
+                  size={16}
+                  color={colors.priorityHighText}
+                />
+                <Text
+                  style={{
+                    color: colors.priorityHighText,
+                    fontWeight: "700",
+                    fontSize: 13,
+                  }}
+                >
+                  Tipid suggests turning off:
+                </Text>
+              </View>
+              {recommendations
+                .filter((r) => r.action === "turn_off")
+                .slice(0, 3)
+                .map((r) => (
+                  <Text
+                    key={r.applianceId}
+                    style={{
+                      color: colors.priorityHighText,
+                      fontSize: 12,
+                      marginLeft: 24,
+                    }}
+                  >
+                    • {r.applianceName} — saves ₱
+                    {r.estimatedCostSaved.toFixed(2)}, +
+                    {Math.round(r.estimatedMinutesGained)}min
+                  </Text>
+                ))}
+            </View>
+          )}
           <Text style={[styles.sectionHeader, { color: colors.textSecondary }]}>
             APPLIANCES
           </Text>

@@ -1,4 +1,5 @@
 // src/app/_layout.tsx
+import NetInfo from "@react-native-community/netinfo";
 import { Session } from "@supabase/supabase-js";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as ExpoSplashScreen from "expo-splash-screen";
@@ -9,6 +10,8 @@ import {
   AppState,
   AppStateStatus,
   Easing,
+  StyleSheet,
+  Text,
 } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppProvider } from "../context/AppContext";
@@ -23,7 +26,70 @@ import { checkAndFireNotifications } from "../services/notificationService";
 
 ExpoSplashScreen.preventAutoHideAsync();
 
-// ─── NOTIFICATION CONTROLLER ─────────────────────────────────
+// ─── OFFLINE BANNER ──────────────────────────────────────────────────────────
+// Sits at the very top of the screen whenever the device has no internet.
+// All cached data (settings, optimization results) still works while offline.
+function OfflineBanner() {
+  const slideAnim = useRef(new Animated.Value(-48)).current;
+  const [isOffline, setIsOffline] = useState(false);
+
+  useEffect(() => {
+    // Subscribe to network state changes
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      const offline = !state.isConnected || !state.isInternetReachable;
+      setIsOffline(!!offline);
+
+      Animated.timing(slideAnim, {
+        toValue: offline ? 0 : -48,
+        duration: 300,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  if (!isOffline) return null;
+
+  return (
+    <Animated.View
+      style={[offlineStyles.banner, { transform: [{ translateY: slideAnim }] }]}
+    >
+      <Text style={offlineStyles.icon}></Text>
+      <Text style={offlineStyles.text}>
+        You're offline — showing saved data
+      </Text>
+    </Animated.View>
+  );
+}
+
+const offlineStyles = StyleSheet.create({
+  banner: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 9999,
+    backgroundColor: "#333333",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    paddingTop: 48, // clears status bar
+    gap: 8,
+  },
+  icon: {
+    fontSize: 14,
+  },
+  text: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+});
+
+// ─── NOTIFICATION CONTROLLER ─────────────────────────────────────────────────
 function NotificationController() {
   const { appliances, totalDailyKwh, loading } = useAppliances();
   const { dailyQuota, notifQuota, notifPeak, electricityRate } = useSettings(); // merge into one line
@@ -62,7 +128,7 @@ function NotificationController() {
   return null;
 }
 
-// ─── SPLASH SCREEN ───────────────────────────────────────────
+// ─── SPLASH SCREEN ───────────────────────────────────────────────────────────
 function SplashScreen() {
   const slideAnim = useRef(new Animated.Value(400)).current;
   const bgAnim = useRef(new Animated.Value(0)).current;
@@ -125,7 +191,7 @@ function SplashScreen() {
   );
 }
 
-// ─── ROOT LAYOUT ─────────────────────────────────────────────
+// ─── ROOT LAYOUT ─────────────────────────────────────────────────────────────
 export default function RootLayout() {
   const [session, setSession] = useState<Session | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -192,6 +258,8 @@ export default function RootLayout() {
         <SettingsProvider>
           <AppProvider>
             <ProfileProvider>
+              {/* Offline banner — sits above everything, slides in when no internet */}
+              <OfflineBanner />
               <NotificationController />
               <Stack screenOptions={{ headerShown: false }} />
             </ProfileProvider>

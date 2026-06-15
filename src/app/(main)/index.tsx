@@ -35,6 +35,7 @@ export default function DashboardScreen() {
     activeAppliances,
     loading,
     totalDailyKwh,
+    displayKwh,
     totalDailyCost,
     progressWidth,
     addAppliance,
@@ -61,7 +62,11 @@ export default function DashboardScreen() {
   const { recommendations, schedule, runRecommendations } =
     useRecommendations();
   const { checkAutoShutoff } = useRuntimeTracker();
-  const { electricityRate, dailyQuota, isLoaded: settingsLoaded } = useSettings();
+  const {
+    electricityRate,
+    dailyQuota,
+    isLoaded: settingsLoaded,
+  } = useSettings();
   // Init the quota period anchor on first load
   useEffect(() => {
     initPeriod(totalDailyKwh);
@@ -74,10 +79,14 @@ export default function DashboardScreen() {
 
   // Check and fire notifications whenever consumption changes
   useEffect(() => {
-    if (totalDailyKwh > 0) {
+    recalculate(displayKwh, dailyQuota, appliances);
+  }, [displayKwh, dailyQuota, appliances]);
+
+  useEffect(() => {
+    if (displayKwh > 0) {
       checkAndFireNotifications(
         appliances,
-        totalDailyKwh,
+        displayKwh,
         dailyQuota,
         electricityRate,
         true,
@@ -85,7 +94,8 @@ export default function DashboardScreen() {
         projectedMinutesRemaining,
       );
     }
-  }, [totalDailyKwh]);
+  }, [displayKwh]);
+
   useEffect(() => {
     const interval = setInterval(async () => {
       const remainingKwh = dailyQuota - totalDailyKwh;
@@ -147,7 +157,7 @@ export default function DashboardScreen() {
 
           <WeeklyChart data={weeklyUsage} />
           <QuotaCard
-            totalDailyKwh={totalDailyKwh}
+            totalDailyKwh={displayKwh} // ← ledger value, never drops
             totalDailyCost={totalDailyCost}
             progressWidth={progressWidth}
             appliances={appliances}

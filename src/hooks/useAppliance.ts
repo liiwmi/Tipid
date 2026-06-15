@@ -4,6 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, AppStateStatus } from "react-native";
 import { useSettings } from "../context/SettingsContext";
 import { supabase } from "../lib/supabase";
+import {
+  getTodayAccumulatedKwh,
+  recordEnergySnapshot,
+  startApplianceSession,
+  stopApplianceSession,
+} from "../services/energyLedger";
 import { Appliance } from "../types/appliance";
 
 const APPLIANCES_CACHE_KEY = "@appliances_cache";
@@ -326,7 +332,15 @@ export function useAppliances() {
         (sum, a) => sum + (a.watts * a.hours_per_day) / 1000,
         0,
       );
+
       await upsertDailyHistory(cachedKwh);
+
+      // Sync ledger on startup — takes the higher of ledger vs computed
+      const ledgerKwh = await getTodayAccumulatedKwh();
+      const authoritative = Math.max(cachedKwh, ledgerKwh);
+      if (authoritative > 0) {
+        await recordEnergySnapshot(authoritative);
+      }
     }
 
     // 4. Network check and sync
@@ -479,6 +493,21 @@ export function useAppliances() {
           const rate = rateRaw ? parseFloat(rateRaw) : 11.5;
           await recordConfirmedPrune(appliance, rate);
         }
+        if (newActiveState) {
+          // Appliance turned ON — start tracking its session
+          await startApplianceSession(
+            appliance.id,
+            appliance.name,
+            appliance.watts,
+          );
+        } else {
+          // Appliance turned OFF — commit its session to ledger
+          const kwhThisSession = await stopApplianceSession(appliance.id);
+          if (kwhThisSession > 0) {
+            const baseKwh = await getTodayAccumulatedKwh();
+            await recordEnergySnapshot(baseKwh + kwhThisSession);
+          }
+        }
       }
     },
     [updateAppliance],
@@ -536,11 +565,24 @@ export function useAppliances() {
 
   // ─── DELETE ─────────────────────────────────────────────
   async function deleteAppliance(id: string) {
+    // Commit any in-progress session before deleting
+    const applianceToDelete = appliancesRef.current.find((a) => a.id === id);
+    if (applianceToDelete?.is_active) {
+      const kwhThisSession = await stopApplianceSession(id);
+      if (kwhThisSession > 0) {
+        const baseKwh = await getTodayAccumulatedKwh();
+        // recordEnergySnapshot only increases — progress bar never drops
+        await recordEnergySnapshot(baseKwh + kwhThisSession);
+      }
+    }
+
+    // Now remove from appliance list — this does NOT affect the ledger
     const updated = appliancesRef.current.filter((a) => a.id !== id);
     setAppliances(updated);
     await saveCache(updated);
 
-    // Snapshot after delete
+    // upsertDailyHistory still reflects the new computed total
+    // but the LEDGER holds the historical high water mark
     const newKwh = updated.reduce(
       (sum, a) => sum + (a.watts * a.hours_per_day) / 1000,
       0,
@@ -581,8 +623,21 @@ export function useAppliances() {
     0,
   );
 
-  // No Math.min — raw percentage, supports over 100%
-  const progressWidth = settingsLoaded ? (totalDailyKwh / dailyQuota) * 100 : 0;
+  // Export ledger kwh so consumers can use it for the progress bar
+  const [ledgerKwh, setLedgerKwh] = useState(0);
+
+  // Refresh ledger display value whenever appliances change
+  useEffect(() => {
+    getTodayAccumulatedKwh().then(setLedgerKwh);
+  }, [appliances]);
+
+  // progressWidth uses ledger (never drops) not computed (drops on delete)
+  const progressWidth = settingsLoaded
+    ? (Math.max(totalDailyKwh, ledgerKwh) / dailyQuota) * 100
+    : 0;
+
+  // Also export both so QuotaCard can show the right number
+  const displayKwh = Math.max(totalDailyKwh, ledgerKwh);
 
   return {
     appliances,
@@ -590,6 +645,8 @@ export function useAppliances() {
     loading,
     isOnline,
     totalDailyKwh,
+    displayKwh,
+    ledgerKwh,
     totalDailyCost,
     progressWidth,
     addAppliance,

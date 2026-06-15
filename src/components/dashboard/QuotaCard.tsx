@@ -1,28 +1,41 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '../../context/ThemeContext';
-import { useSettings } from '../../context/SettingsContext';
-import { fontSizes, fontWeights, spacing, borderRadius } from '../../styles/theme';
+import { Ionicons } from "@expo/vector-icons";
+import React, { useEffect, useState } from "react";
+import {
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useSettings } from "../../context/SettingsContext";
+import { useTheme } from "../../context/ThemeContext";
+import {
+  borderRadius,
+  fontSizes,
+  fontWeights,
+  spacing,
+} from "../../styles/theme";
 
 interface Props {
   totalDailyKwh: number;
   totalDailyCost: number;
   progressWidth: number;
   appliances?: { watts: number; is_active: boolean }[];
+  projectedMinutesRemaining: number | null;
 }
 
 function getProgressColor(pct: number): string {
-  if (pct >= 100) return '#c62828';
-  if (pct >= 75)  return '#f57f17';
-  if (pct >= 50)  return '#f9a825';
-  return '#2e7d32';
+  if (pct >= 110) return "#7b0000";
+  if (pct >= 100) return "#c62828";
+  if (pct >= 75) return "#f57f17";
+  if (pct >= 50) return "#f9a825";
+  return "#2e7d32";
 }
 
 function estimateHoursLeft(
   totalDailyKwh: number,
   dailyQuota: number,
-  appliances: { watts: number; is_active: boolean }[] = []
+  appliances: { watts: number; is_active: boolean }[] = [],
 ): string | null {
   const remaining = dailyQuota - totalDailyKwh;
   if (remaining <= 0) return null;
@@ -44,18 +57,39 @@ function estimateHoursLeft(
   return `~${h}h ${m}m until quota`;
 }
 
-export default function QuotaCard({ totalDailyKwh, totalDailyCost, progressWidth, appliances = [] }: Props) {
+export default function QuotaCard({
+  totalDailyKwh,
+  totalDailyCost,
+  progressWidth,
+  appliances = [],
+  projectedMinutesRemaining, // ADD THIS
+}: Props) {
+  const [, setTick] = useState(0);
   const { colors } = useTheme();
   const { dailyQuota, electricityRate, setElectricityRate } = useSettings();
 
   const [editingRate, setEditingRate] = useState(false);
   const [draftRate, setDraftRate] = useState(String(electricityRate));
 
-  const pct = Math.min(progressWidth, 100);
+  const pct = progressWidth;
   const progressColor = getProgressColor(pct);
   const remaining = Math.max(dailyQuota - totalDailyKwh, 0);
   const isOver = totalDailyKwh >= dailyQuota;
-  const timeLabel = estimateHoursLeft(totalDailyKwh, dailyQuota, appliances);
+  const timeLabel = (() => {
+    if (projectedMinutesRemaining === null) return null;
+    if (projectedMinutesRemaining <= 0) return "Quota reached";
+
+    const totalSeconds = Math.round(projectedMinutesRemaining * 60);
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+
+    if (h > 0 && m > 0) return `~${h}h ${m}m until quota`;
+    if (h > 0) return `~${h}h until quota`;
+    if (m > 0 && s > 0) return `${m}m ${s}s until quota`;
+    if (m > 0) return `${m}m until quota`;
+    return `${s}s until quota`;
+  })();
 
   const handleSaveRate = () => {
     const v = parseFloat(draftRate);
@@ -67,28 +101,42 @@ export default function QuotaCard({ totalDailyKwh, totalDailyCost, progressWidth
     setEditingRate(false);
   };
 
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 60 * 1000); // re-render every minute
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <View style={[s.card, { backgroundColor: colors.bgCard }]}>
-
       {/* HEADER */}
-      <Text style={[s.cardTitle, { color: colors.textSecondary }]}>Daily Quota Status</Text>
+      <Text style={[s.cardTitle, { color: colors.textSecondary }]}>
+        Daily Quota Status
+      </Text>
 
       {/* MAIN VALUE */}
       <View style={s.valueRow}>
         <Text style={[s.mainValue, { color: colors.textPrimary }]}>
           {totalDailyKwh.toFixed(2)}
-          <Text style={[s.mainUnit, { color: colors.textSecondary }]}> kWh</Text>
+          <Text style={[s.mainUnit, { color: colors.textSecondary }]}>
+            {" "}
+            kWh
+          </Text>
         </Text>
-        <View style={[s.pctBadge, { backgroundColor: progressColor + '22' }]}>
+        <View style={[s.pctBadge, { backgroundColor: progressColor + "22" }]}>
           <Text style={[s.pctText, { color: progressColor }]}>
-            {pct.toFixed(0)}%
+            {pct.toFixed(1)}%
           </Text>
         </View>
       </View>
 
       {/* PROGRESS BAR */}
       <View style={[s.track, { backgroundColor: colors.progressTrack }]}>
-        <View style={[s.fill, { width: `${pct}%`, backgroundColor: progressColor }]} />
+        <View
+          style={[
+            s.fill,
+            { width: `${Math.min(pct, 100)}%`, backgroundColor: progressColor },
+          ]}
+        />
       </View>
 
       {/* FOOTER ROW */}
@@ -105,9 +153,15 @@ export default function QuotaCard({ totalDailyKwh, totalDailyCost, progressWidth
         </View>
         <View style={s.footerRight}>
           {isOver ? (
-            <Text style={[s.remainingText, { color: '#c62828' }]}>
-              +{(totalDailyKwh - dailyQuota).toFixed(2)} kWh over
-            </Text>
+            <>
+              <Text style={[s.remainingText, { color: "#c62828" }]}>
+                +{(totalDailyKwh - dailyQuota).toFixed(2)} kWh over
+              </Text>
+              <Text style={[s.quotaLimit, { color: "#c62828" }]}>
+                est. extra ₱
+                {((totalDailyKwh - dailyQuota) * electricityRate).toFixed(2)}
+              </Text>
+            </>
           ) : (
             <Text style={[s.remainingText, { color: progressColor }]}>
               {remaining.toFixed(2)} kWh left
@@ -131,11 +185,14 @@ export default function QuotaCard({ totalDailyKwh, totalDailyCost, progressWidth
         <View style={s.rateRight}>
           {editingRate ? (
             <TextInput
-              style={[s.rateInput, {
-                color: colors.textPrimary,
-                borderColor: colors.primary,
-                backgroundColor: colors.bgInput,
-              }]}
+              style={[
+                s.rateInput,
+                {
+                  color: colors.textPrimary,
+                  borderColor: colors.primary,
+                  backgroundColor: colors.bgInput,
+                },
+              ]}
               value={draftRate}
               onChangeText={setDraftRate}
               keyboardType="decimal-pad"
@@ -149,11 +206,13 @@ export default function QuotaCard({ totalDailyKwh, totalDailyCost, progressWidth
             </Text>
           )}
           <TouchableOpacity
-            onPress={() => editingRate ? handleSaveRate() : setEditingRate(true)}
+            onPress={() =>
+              editingRate ? handleSaveRate() : setEditingRate(true)
+            }
             style={[s.editBtn, { borderColor: colors.primary }]}
           >
             <Text style={[s.editBtnText, { color: colors.primary }]}>
-              {editingRate ? 'Save' : 'Edit'}
+              {editingRate ? "Save" : "Edit"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -168,7 +227,7 @@ const s = StyleSheet.create({
     padding: spacing.lg,
     marginBottom: spacing.md,
     elevation: 2,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOpacity: 0.05,
     shadowRadius: 10,
   },
@@ -178,9 +237,9 @@ const s = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   valueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: spacing.md,
   },
   mainValue: {
@@ -203,20 +262,20 @@ const s = StyleSheet.create({
     height: 8,
     borderRadius: borderRadius.sm,
     marginBottom: spacing.md,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   fill: {
-    height: '100%',
+    height: "100%",
     borderRadius: borderRadius.sm,
   },
   footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
     marginBottom: spacing.sm,
   },
   footerLeft: { gap: 2 },
-  footerRight: { alignItems: 'flex-end', gap: 2 },
+  footerRight: { alignItems: "flex-end", gap: 2 },
   footerLabel: { fontSize: fontSizes.sm },
   remainingText: {
     fontSize: fontSizes.sm,
@@ -228,8 +287,8 @@ const s = StyleSheet.create({
     marginVertical: spacing.sm,
   },
   rateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: spacing.sm,
   },
   rateLabel: {
@@ -237,8 +296,8 @@ const s = StyleSheet.create({
     flex: 1,
   },
   rateRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: spacing.sm,
   },
   rateValue: {

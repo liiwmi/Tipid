@@ -19,28 +19,41 @@ def apply_priority_scaling(items: List[Dict], current_hour: int) -> List[Dict]:
         peak_start = item.get("peak_start")
         peak_end   = item.get("peak_end")
 
-        if new_item["priority"] == PRIORITY_MEDIUM:
-            in_peak = False
-            if peak_start is not None and peak_end is not None:
-                in_peak = peak_start <= current_hour <= peak_end
-            elif peak_start is not None:
-                in_peak = peak_start == current_hour
-
-            if in_peak:
-                # Hard upgrade to High — NOT a multiplier
-                new_item["priority"] = PRIORITY_HIGH
-                new_item["scaled_up"] = True
+        if peak_start is not None and peak_end is not None:
+            # ✅ Use strict less than for end (consistent with frontend)
+            if peak_start <= current_hour < peak_end:
+                new_item["priority"] = round(new_item["priority"] * 1.5)
+        elif peak_start is not None:
+            if peak_start == current_hour:
+                new_item["priority"] = round(new_item["priority"] * 1.5)
 
         scaled_items.append(new_item)
     return scaled_items
 
+class Node:
+    def __init__(self, level: int, profit: float, weight: float, selected_items: List[str]):
+        self.level = level
+        self.profit = profit
+        self.weight = weight
+        self.selected_items = selected_items
+        self.bound = 0.0
 
-# ── Stage B: Merge Sort by Value Density ──────────────────────────────────────
-#         "appliances are first sorted according to their Priority-to-Cost ratio
-#         from highest to lowest. Time complexity: O(n log n)"
-def merge_sort(items: List[Dict]) -> List[Dict]:
-    if len(items) <= 1:
-        return items
+    def __lt__(self, other):
+        return self.bound > other.bound  # Max-heap by bound
+
+
+def calculate_bound(node: Node, n: int, budget: float, items: List[Dict]) -> float:
+    if node.weight >= budget:
+        return 0.0
+
+    profit_bound = node.profit
+    j = node.level + 1
+    total_weight = node.weight
+
+    while j < n and total_weight + items[j]["cost"] <= budget:
+        total_weight += items[j]["cost"]
+        profit_bound += items[j]["priority"]
+        j += 1
 
     mid   = len(items) // 2
     left  = merge_sort(items[:mid])

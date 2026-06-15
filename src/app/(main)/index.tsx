@@ -1,7 +1,8 @@
+import { checkAndFireNotifications } from "@/src/services/notificationService";
 import { Ionicons } from "@expo/vector-icons";
 import { DrawerActions } from "@react-navigation/native";
 import { useNavigation } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Image, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import {
   SafeAreaView,
@@ -13,13 +14,20 @@ import MetricsGrid from "../../components/dashboard/MetricsGrid";
 import QuotaCard from "../../components/dashboard/QuotaCard";
 import WeeklyChart from "../../components/dashboard/WeeklyChart";
 import AddApplianceModal from "../../components/modals/AddApplianceModal";
+import { useProfileContext } from "../../context/ProfileContext";
+import { useSettings } from "../../context/SettingsContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useAppliances } from "../../hooks/useAppliance";
 import { useDailyUsage } from "../../hooks/useDailyUsage";
 import { usePeakHour } from "../../hooks/usePeakHour";
+import { useQuotaProjection } from "../../hooks/useQuotaProjection";
+import { useRecommendations } from "../../hooks/useRecommendation";
+import { useRuntimeTracker } from "../../hooks/useRuntimeTracker";
 import { globalStyles as styles } from "../../styles/styles";
-import { useProfileContext } from '../../context/ProfileContext';
+
 export default function DashboardScreen() {
+  const { projectedMinutesRemaining, recalculate, initPeriod } =
+    useQuotaProjection();
   const navigation = useNavigation();
   const { colors } = useTheme();
   const {
@@ -27,6 +35,7 @@ export default function DashboardScreen() {
     activeAppliances,
     loading,
     totalDailyKwh,
+    displayKwh,
     totalDailyCost,
     progressWidth,
     addAppliance,
@@ -50,6 +59,57 @@ export default function DashboardScreen() {
         ? "Good Afternoon,"
         : "Good Evening,";
 
+  const { recommendations, schedule, runRecommendations } =
+    useRecommendations();
+  const { checkAutoShutoff } = useRuntimeTracker();
+  const {
+    electricityRate,
+    dailyQuota,
+    isLoaded: settingsLoaded,
+  } = useSettings();
+  // Init the quota period anchor on first load
+  useEffect(() => {
+    initPeriod(totalDailyKwh);
+  }, []);
+
+  // Recalculate projection whenever consumption changes
+  useEffect(() => {
+    recalculate(totalDailyKwh, dailyQuota, appliances);
+  }, [totalDailyKwh, dailyQuota, appliances]);
+
+  // Check and fire notifications whenever consumption changes
+  useEffect(() => {
+    recalculate(displayKwh, dailyQuota, appliances);
+  }, [displayKwh, dailyQuota, appliances]);
+
+  useEffect(() => {
+    if (displayKwh > 0) {
+      checkAndFireNotifications(
+        appliances,
+        displayKwh,
+        dailyQuota,
+        electricityRate,
+        true,
+        true,
+        projectedMinutesRemaining,
+      );
+    }
+  }, [displayKwh]);
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const remainingKwh = dailyQuota - totalDailyKwh;
+      await checkAutoShutoff(appliances, remainingKwh, updateAppliance);
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [appliances, totalDailyKwh, dailyQuota]);
+
+  // Run recommendations whenever consumption changes
+  useEffect(() => {
+    if (appliances.length === 0 || !settingsLoaded) return;
+    const budget = dailyQuota * electricityRate;
+    runRecommendations(appliances, budget, electricityRate);
+  }, [totalDailyKwh, appliances.length]);
   return (
     <GradientBackground>
       <SafeAreaView
@@ -97,10 +157,11 @@ export default function DashboardScreen() {
 
           <WeeklyChart data={weeklyUsage} />
           <QuotaCard
-            totalDailyKwh={totalDailyKwh}
+            totalDailyKwh={displayKwh} // ← ledger value, never drops
             totalDailyCost={totalDailyCost}
             progressWidth={progressWidth}
             appliances={appliances}
+            projectedMinutesRemaining={projectedMinutesRemaining}
           />
           <MetricsGrid
             applianceCount={activeAppliances.length}

@@ -1,20 +1,25 @@
-import React, { useState, useEffect } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import React, { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
+  Alert,
   Modal,
   ScrollView,
   StyleSheet,
-  Alert,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useTheme } from "../../context/ThemeContext";
-import { Appliance } from "../../types/appliance";
 import { APPLIANCE_ICONS } from "../../constants/appliance-icons";
-import { borderRadius, fontSizes, fontWeights, spacing } from "../../styles/theme";
+import { useTheme } from "../../context/ThemeContext";
+import {
+  borderRadius,
+  fontSizes,
+  fontWeights,
+  spacing,
+} from "../../styles/theme";
+import { Appliance } from "../../types/appliance";
 
 interface Props {
   appliance: Appliance | null;
@@ -27,12 +32,20 @@ interface Props {
 type Priority = "low" | "medium" | "high";
 
 const PRIORITY_OPTIONS: { value: Priority; label: string; color: string }[] = [
-  { value: "low",    label: "Low",    color: "#2e7d32" },
+  { value: "low", label: "Low", color: "#2e7d32" },
   { value: "medium", label: "Medium", color: "#f57f17" },
-  { value: "high",   label: "High",   color: "#c62828" },
+  { value: "high", label: "High", color: "#c62828" },
 ];
 
-export default function EditApplianceModal({ appliance, visible, onClose, onSave, onDelete }: Props) {
+const TIME_REGEX = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+
+export default function EditApplianceModal({
+  appliance,
+  visible,
+  onClose,
+  onSave,
+  onDelete,
+}: Props) {
   const { colors } = useTheme();
 
   const [name, setName] = useState("");
@@ -44,45 +57,59 @@ export default function EditApplianceModal({ appliance, visible, onClose, onSave
   const [peakEnd, setPeakEnd] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Populate fields when appliance changes
+  // ── POPULATE FIELDS ───────────────────────────────────────
   useEffect(() => {
-    if (appliance) {
-      setName(appliance.name);
-      setWatts(String(appliance.watts));
-      setHoursPerDay(String(appliance.hours_per_day));
-      setPriority(appliance.priority);
-      setSelectedIcon(appliance.icon);
-      setPeakStart(appliance.peak_start ?? "");
-      setPeakEnd(appliance.peak_end ?? "");
-    }
+    if (!appliance) return;
+    setName(appliance.name);
+    setWatts(String(appliance.watts));
+    setHoursPerDay(String(appliance.hours_per_day));
+    setPriority(appliance.priority);
+    setSelectedIcon(appliance.icon);
+    setPeakStart(appliance.peak_start ?? "");
+    setPeakEnd(appliance.peak_end ?? "");
   }, [appliance]);
 
-  const handleSave = async () => {
-    if (!name.trim()) return Alert.alert("Validation", "Appliance name is required.");
-    if (!watts || isNaN(Number(watts))) return Alert.alert("Validation", "Enter a valid wattage.");
-    if (!hoursPerDay || isNaN(Number(hoursPerDay))) return Alert.alert("Validation", "Enter valid hours per day.");
+  // ── VALIDATE ──────────────────────────────────────────────
+  function validate(): string | null {
+    if (!name.trim()) return "Appliance name is required.";
+    if (!watts || isNaN(Number(watts)) || Number(watts) <= 0)
+      return "Enter a valid wattage.";
+    if (!hoursPerDay || isNaN(Number(hoursPerDay)) || Number(hoursPerDay) <= 0)
+      return "Enter valid hours per day.";
     if (priority === "medium") {
-      if (!peakStart || !peakEnd) return Alert.alert("Validation", "Enter peak start and end time.");
-      const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-      if (!timeRegex.test(peakStart) || !timeRegex.test(peakEnd)) {
-        return Alert.alert("Validation", "Time format should be HH:MM (e.g. 14:00)");
-      }
+      if (!peakStart || !peakEnd)
+        return "Enter peak start and end time for medium priority.";
+      if (!TIME_REGEX.test(peakStart) || !TIME_REGEX.test(peakEnd))
+        return "Time format should be HH:MM (e.g. 14:00).";
     }
+    return null;
+  }
+
+  // ── SAVE ──────────────────────────────────────────────────
+  const handleSave = async () => {
+    const error = validate();
+    if (error) return Alert.alert("Validation", error);
 
     setLoading(true);
-    await onSave(appliance!.id, {
-      name: name.trim(),
-      watts: Number(watts),
-      hours_per_day: Number(hoursPerDay),
-      priority,
-      icon: selectedIcon,
-      peak_start: priority === "medium" ? peakStart : null,
-      peak_end: priority === "medium" ? peakEnd : null,
-    });
-    setLoading(false);
-    onClose();
+    try {
+      await onSave(appliance!.id, {
+        name: name.trim(),
+        watts: Number(watts),
+        hours_per_day: Number(hoursPerDay),
+        priority,
+        icon: selectedIcon,
+        peak_start: priority === "medium" ? peakStart : null,
+        peak_end: priority === "medium" ? peakEnd : null,
+      });
+      onClose();
+    } catch {
+      Alert.alert("Error", "Failed to save. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // ── DELETE ────────────────────────────────────────────────
   const handleDelete = () => {
     Alert.alert(
       "Delete Appliance",
@@ -97,11 +124,16 @@ export default function EditApplianceModal({ appliance, visible, onClose, onSave
             onClose();
           },
         },
-      ]
+      ],
     );
   };
 
   if (!appliance) return null;
+
+  const card = [
+    s.card,
+    { backgroundColor: colors.bgCard, borderColor: colors.borderDefault },
+  ];
 
   return (
     <Modal
@@ -127,65 +159,88 @@ export default function EditApplianceModal({ appliance, visible, onClose, onSave
             disabled={loading}
             style={s.headerBtn}
           >
-            <Text style={[s.saveText, { color: colors.primary }, loading && { opacity: 0.5 }]}>
+            <Text
+              style={[
+                s.saveText,
+                { color: colors.primary },
+                loading && { opacity: 0.5 },
+              ]}
+            >
               {loading ? "Saving..." : "Save"}
             </Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-
-          {/* ICON PICKER */}
+        <ScrollView
+          contentContainerStyle={s.scroll}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* ICON */}
           <Text style={[s.label, { color: colors.textSecondary }]}>ICON</Text>
-          <View style={[s.card, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}>
+          <View style={card}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={s.iconGrid}
             >
-              {APPLIANCE_ICONS.map((icon) => (
-                <TouchableOpacity
-                  key={icon.name}
-                  style={[
-                    s.iconItem,
-                    { backgroundColor: colors.bgInput, borderColor: colors.borderDefault },
-                    selectedIcon === icon.name && { backgroundColor: colors.primary, borderColor: colors.primary },
-                  ]}
-                  onPress={() => setSelectedIcon(icon.name)}
-                >
-                  <Ionicons
-                    name={icon.name as any}
-                    size={24}
-                    color={selectedIcon === icon.name ? "#fff" : colors.textPrimary}
-                  />
-                  <Text style={[
-                    s.iconLabel,
-                    { color: selectedIcon === icon.name ? "#fff" : colors.textSecondary },
-                  ]}>
-                    {icon.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {APPLIANCE_ICONS.map((icon) => {
+                const active = selectedIcon === icon.name;
+                return (
+                  <TouchableOpacity
+                    key={icon.name}
+                    style={[
+                      s.iconItem,
+                      {
+                        backgroundColor: active
+                          ? colors.primary
+                          : colors.bgInput,
+                        borderColor: active
+                          ? colors.primary
+                          : colors.borderDefault,
+                      },
+                    ]}
+                    onPress={() => setSelectedIcon(icon.name)}
+                  >
+                    <Ionicons
+                      name={icon.name as any}
+                      size={24}
+                      color={active ? "#fff" : colors.textPrimary}
+                    />
+                    <Text
+                      style={[
+                        s.iconLabel,
+                        { color: active ? "#fff" : colors.textSecondary },
+                      ]}
+                    >
+                      {icon.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
           </View>
 
           {/* NAME */}
           <Text style={[s.label, { color: colors.textSecondary }]}>NAME</Text>
-          <View style={[s.card, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}>
+          <View style={card}>
             <TextInput
               style={[s.input, { color: colors.textPrimary }]}
               placeholder="Appliance name"
               placeholderTextColor={colors.textSecondary}
               value={name}
               onChangeText={setName}
+              returnKeyType="done"
             />
           </View>
 
-          {/* WATTS & HOURS */}
+          {/* USAGE */}
           <Text style={[s.label, { color: colors.textSecondary }]}>USAGE</Text>
-          <View style={[s.card, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}>
+          <View style={card}>
             <View style={[s.row, { borderBottomColor: colors.borderDefault }]}>
-              <Text style={[s.rowLabel, { color: colors.textPrimary }]}>Wattage</Text>
+              <Text style={[s.rowLabel, { color: colors.textPrimary }]}>
+                Wattage
+              </Text>
               <TextInput
                 style={[s.rowInput, { color: colors.textPrimary }]}
                 value={watts}
@@ -194,11 +249,16 @@ export default function EditApplianceModal({ appliance, visible, onClose, onSave
                 placeholder="e.g. 1500"
                 placeholderTextColor={colors.textSecondary}
                 textAlign="right"
+                returnKeyType="done"
               />
-              <Text style={[s.rowUnit, { color: colors.textSecondary }]}>W</Text>
+              <Text style={[s.rowUnit, { color: colors.textSecondary }]}>
+                W
+              </Text>
             </View>
             <View style={[s.row, { borderBottomWidth: 0 }]}>
-              <Text style={[s.rowLabel, { color: colors.textPrimary }]}>Hours / Day</Text>
+              <Text style={[s.rowLabel, { color: colors.textPrimary }]}>
+                Hours / Day
+              </Text>
               <TextInput
                 style={[s.rowInput, { color: colors.textPrimary }]}
                 value={hoursPerDay}
@@ -207,41 +267,67 @@ export default function EditApplianceModal({ appliance, visible, onClose, onSave
                 placeholder="e.g. 8"
                 placeholderTextColor={colors.textSecondary}
                 textAlign="right"
+                returnKeyType="done"
               />
-              <Text style={[s.rowUnit, { color: colors.textSecondary }]}>hrs</Text>
+              <Text style={[s.rowUnit, { color: colors.textSecondary }]}>
+                hrs
+              </Text>
             </View>
           </View>
 
           {/* PRIORITY */}
-          <Text style={[s.label, { color: colors.textSecondary }]}>PRIORITY</Text>
-          <View style={[s.card, s.priorityRow, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}>
-            {PRIORITY_OPTIONS.map((option) => (
-              <TouchableOpacity
-                key={option.value}
-                style={[
-                  s.priorityOption,
-                  { borderColor: colors.borderDefault },
-                  priority === option.value && { backgroundColor: option.color, borderColor: option.color },
-                ]}
-                onPress={() => setPriority(option.value)}
-              >
-                <Text style={[
-                  s.priorityText,
-                  { color: priority === option.value ? "#fff" : colors.textPrimary },
-                ]}>
-                  {option.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <Text style={[s.label, { color: colors.textSecondary }]}>
+            PRIORITY
+          </Text>
+          <View style={[card, s.priorityRow]}>
+            {PRIORITY_OPTIONS.map((option) => {
+              const active = priority === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    s.priorityOption,
+                    {
+                      borderColor: active ? option.color : colors.borderDefault,
+                      backgroundColor: active ? option.color : "transparent",
+                    },
+                  ]}
+                  onPress={() => setPriority(option.value)}
+                >
+                  <Text
+                    style={[
+                      s.priorityText,
+                      { color: active ? "#fff" : colors.textPrimary },
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
-          {/* PEAK TIME */}
+          {/* PEAK WINDOW */}
           {priority === "medium" && (
             <>
-              <Text style={[s.label, { color: colors.textSecondary }]}>PEAK WINDOW</Text>
-              <View style={[s.card, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}>
-                <View style={[s.row, { borderBottomColor: colors.borderDefault }]}>
-                  <Text style={[s.rowLabel, { color: colors.textPrimary }]}>From</Text>
+              <Text style={[s.label, { color: colors.textSecondary }]}>
+                PEAK WINDOW
+              </Text>
+              <View
+                style={[
+                  s.card,
+                  {
+                    backgroundColor: colors.bgCard,
+                    borderColor: colors.borderDefault,
+                  },
+                ]}
+              >
+                <View
+                  style={[s.row, { borderBottomColor: colors.borderDefault }]}
+                >
+                  <Text style={[s.rowLabel, { color: colors.textPrimary }]}>
+                    From
+                  </Text>
                   <TextInput
                     style={[s.rowInput, { color: colors.textPrimary }]}
                     value={peakStart}
@@ -249,10 +335,13 @@ export default function EditApplianceModal({ appliance, visible, onClose, onSave
                     placeholder="14:00"
                     placeholderTextColor={colors.textSecondary}
                     textAlign="right"
+                    returnKeyType="done"
                   />
                 </View>
                 <View style={[s.row, { borderBottomWidth: 0 }]}>
-                  <Text style={[s.rowLabel, { color: colors.textPrimary }]}>To</Text>
+                  <Text style={[s.rowLabel, { color: colors.textPrimary }]}>
+                    To
+                  </Text>
                   <TextInput
                     style={[s.rowInput, { color: colors.textPrimary }]}
                     value={peakEnd}
@@ -260,6 +349,7 @@ export default function EditApplianceModal({ appliance, visible, onClose, onSave
                     placeholder="18:00"
                     placeholderTextColor={colors.textSecondary}
                     textAlign="right"
+                    returnKeyType="done"
                   />
                 </View>
               </View>
@@ -294,9 +384,7 @@ const s = StyleSheet.create({
     paddingVertical: spacing.md,
     borderBottomWidth: 0.5,
   },
-  headerBtn: {
-    width: 60,
-  },
+  headerBtn: { width: 60 },
   headerTitle: {
     fontSize: fontSizes.base,
     fontWeight: fontWeights.bold,
@@ -308,9 +396,7 @@ const s = StyleSheet.create({
     fontWeight: fontWeights.bold,
     textAlign: "right",
   },
-  scroll: {
-    padding: spacing.lg,
-  },
+  scroll: { padding: spacing.lg },
   label: {
     fontSize: fontSizes.xs,
     fontWeight: fontWeights.semibold,

@@ -1,5 +1,6 @@
 // src/app/(main)/settings.tsx
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import * as Speech from "expo-speech";
 import * as Updates from "expo-updates";
@@ -16,9 +17,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useProfileContext } from "../../context/ProfileContext";
 import { FontSize, useSettings } from "../../context/SettingsContext";
 import { useTheme } from "../../context/ThemeContext";
-import { useProfile } from "../../hooks/useProfile";
 import { supabase } from "../../lib/supabase";
 import {
   borderRadius,
@@ -197,7 +198,7 @@ export default function SettingsScreen() {
     { backgroundColor: colors.bgCard, borderColor: colors.borderDefault },
   ];
   const rowBorder = { borderBottomColor: colors.borderDefault };
-  const { profile } = useProfile();
+  const { profile } = useProfileContext();
   const initials = profile.displayName
     ? profile.displayName
         .split(" ")
@@ -460,6 +461,50 @@ export default function SettingsScreen() {
             <TouchableOpacity style={s.rowBody}>
               <Text style={[s.rowTitle, { color: colors.textPrimary }]}>
                 Rate Tipid
+              </Text>
+            </TouchableOpacity>
+            <Ionicons
+              name="chevron-forward"
+              size={16}
+              color={colors.textSecondary}
+            />
+          </View>
+          <View style={[s.row, { borderBottomWidth: 0 }]}>
+            <View style={[s.rowIcon, { backgroundColor: colors.bgListIcon }]}>
+              <Ionicons
+                name="refresh-outline"
+                size={18}
+                color={colors.textSecondary}
+              />
+            </View>
+            <TouchableOpacity
+              style={s.rowBody}
+              onPress={() => {
+                Alert.alert(
+                  "Reset Quota Period",
+                  "This will restart the quota tracking period from now. Projection and savings data for today will be recalculated.",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Reset",
+                      style: "destructive",
+                      onPress: async () => {
+                        await AsyncStorage.multiRemove([
+                          "@tipid_quota_start_timestamp",
+                          "@tipid_quota_start_kwh",
+                          "@tipid_quota_projected_completion",
+                          "@tipid_confirmed_prunes",
+                          "@tipid_prune_candidates",
+                        ]);
+                        Alert.alert("Done", "Quota period has been reset.");
+                      },
+                    },
+                  ],
+                );
+              }}
+            >
+              <Text style={[s.rowTitle, { color: colors.textPrimary }]}>
+                Reset quota period
               </Text>
             </TouchableOpacity>
             <Ionicons

@@ -13,7 +13,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/tipid-logo.png",
+        "foregroundImage": "./assets/tipid-logo.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
@@ -27,10 +27,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/tipid-splash.png",
+          "image": "./assets/tipid-logo-w-title.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#transparent",
           "dark": {
             "backgroundColor": "#000000"
           }

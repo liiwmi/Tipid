@@ -1,6 +1,7 @@
 import AlgorithmVisualizer from "@/src/components/report/AlgorithmVisualizer";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,6 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useSettings } from "../../context/SettingsContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useAppliances } from "../../hooks/useAppliance";
+import { useRecommendations } from "../../hooks/useRecommendation";
 import { runOptimization } from "../../services/optimizer";
 import {
   borderRadius,
@@ -23,41 +25,11 @@ import {
   spacing,
 } from "../../styles/theme";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-interface PruneStep {
-  appliance: string;
-  pruned: boolean;
-  cum_cost: number;
-  budget: number;
-  action: string;
-}
-
-interface SortedAppliance {
-  name: string;
-  watts: number;
-  hours_per_day: number;
-  cost_per_day: number;
-  priority: number; // numeric: 3=High, 2=Medium, 1=Low
-  scaled_up: boolean;
-  is_on: boolean;
-}
-
-interface AlgorithmReport {
-  sortedAppliances: SortedAppliance[];
-  pruningLog: PruneStep[];
-  totalCostOnAppliances: number;
-  budgetThreshold: number;
-  nodesExplored: number;
-  totalPossibleNodes: number;
-  totalWattageOn: number;
-  peakHourActive: boolean;
-  currentHour: number;
-}
+const CACHE_KEY = "@last_optimization_result";
 
 interface OptimizationResult {
-  turn_on: string[];
+  turn_on: string[]; // appliance names
   total_priority_value: number;
-  report?: AlgorithmReport;
   timestamp?: string;
 }
 
@@ -86,41 +58,95 @@ export default function ReportScreen() {
   const [hasRun, setHasRun] = useState(false);
   const [lastRun, setLastRun] = useState<Date | null>(null);
 
-  // ── Load cached result ─────────────────────────────────────────────────────
+  const [pruningHistory, setPruningHistory] = useState<any[]>([]);
+  const [optSessions, setOptSessions] = useState<any[]>([]);
+
+  const peakQuotaPct = Math.max(
+    ...pruningHistory.map(() => 0),
+    (totalDailyKwh / dailyQuota) * 100,
+  );
+  const excessKwh = Math.max(totalDailyKwh - dailyQuota, 0);
+  const excessCost = excessKwh * electricityRate;
+  const { recommendations, schedule, lastRunAt, runRecommendations } =
+    useRecommendations();
+
+  // ── LOAD CACHED RESULT ────────────────────────────────────
   useEffect(() => {
-    const loadCachedResult = async () => {
+    (async () => {
       try {
-        const cached = await AsyncStorage.getItem("@last_optimization_result");
+        const cached = await AsyncStorage.getItem(CACHE_KEY);
         if (cached) {
-          const parsed = JSON.parse(cached);
-          setResult(parsed);
+          const parsed: OptimizationResult = JSON.parse(cached);
+          // Guard: old cache may have stored objects instead of names
+          const turnOn = (parsed.turn_on ?? [])
+            .map((item: any) =>
+              typeof item === "string" ? item : (item?.name ?? ""),
+            )
+            .filter(Boolean);
+          setResult({ ...parsed, turn_on: turnOn });
           setHasRun(true);
-          setLastRun(new Date(parsed.timestamp));
+          if (parsed.timestamp) setLastRun(new Date(parsed.timestamp));
         }
       } catch (_) {}
-    };
-    loadCachedResult();
+    })();
   }, []);
 
-  // ── Run optimization ───────────────────────────────────────────────────────
+  useFocusEffect(
+    useCallback(() => {
+      (async () => {
+        try {
+          const historyRaw = await AsyncStorage.getItem(
+            "@tipid_pruning_history",
+          );
+          const sessionsRaw = await AsyncStorage.getItem(
+            "@tipid_optimization_sessions",
+          );
+          setPruningHistory(historyRaw ? JSON.parse(historyRaw) : []);
+          setOptSessions(sessionsRaw ? JSON.parse(sessionsRaw) : []);
+        } catch {}
+      })();
+    }, []),
+  );
+  // ── RUN OPTIMIZATION ─────────────────────────────────────
   const runOptimizationAuto = useCallback(
     async (isAuto = false) => {
       setLoading(true);
       setTimeout(
         async () => {
           const currentHour = new Date().getHours();
-          const res = runOptimization(
+          const parsedBudget = parseFloat(budget);
+          const effectiveBudget =
+            !isNaN(parsedBudget) && parsedBudget > 0
+              ? parsedBudget
+              : dailyQuota * electricityRate;
+
+          const raw = runOptimization(
             appliances,
-            parseFloat(budget) || dailyQuota * electricityRate,
+            effectiveBudget,
             electricityRate,
             currentHour,
           );
+
+          // Normalise: optimizer returns { turn_on: string[], total_priority_value }
+          const res: OptimizationResult = {
+            turn_on: (raw.turn_on ?? [])
+              .map((item: any) =>
+                typeof item === "string" ? item : (item?.name ?? ""),
+              )
+              .filter(Boolean),
+            total_priority_value: raw.total_priority_value,
+          };
+
           const now = new Date();
           const withTimestamp = { ...res, timestamp: now.toISOString() };
-          await AsyncStorage.setItem(
-            "@last_optimization_result",
-            JSON.stringify(withTimestamp),
-          );
+
+          try {
+            await AsyncStorage.setItem(
+              CACHE_KEY,
+              JSON.stringify(withTimestamp),
+            );
+          } catch (_) {}
+
           setResult(res);
           setHasRun(true);
           setLastRun(now);
@@ -151,12 +177,14 @@ export default function ReportScreen() {
     return () => clearTimeout(timeout);
   }, [hasRun, runOptimizationAuto]);
 
-  // ── Computed ───────────────────────────────────────────────────────────────
+  // ── COMPUTED ──────────────────────────────────────────────
+  const recommendedNames = new Set(result?.turn_on ?? []);
+
   const optimizedAppliances = appliances.filter((a) =>
-    result?.turn_on.includes(a.name),
+    recommendedNames.has(a.name),
   );
   const prunedAppliances = appliances.filter(
-    (a) => a.is_active && !result?.turn_on.includes(a.name),
+    (a) => a.is_active && !recommendedNames.has(a.name),
   );
   const optimizedKwh = optimizedAppliances.reduce(
     (sum, a) => sum + (a.watts * a.hours_per_day) / 1000,
@@ -164,19 +192,28 @@ export default function ReportScreen() {
   );
   const optimizedCost = optimizedKwh * electricityRate;
   const costSavings = totalDailyCost - optimizedCost;
-  const maxBar = Math.max(totalDailyKwh, optimizedKwh, dailyQuota);
-
-  const report = result?.report;
-  const pruningEfficiency = report
-    ? (
-        Math.max(
-          0,
-          (report.totalPossibleNodes - report.nodesExplored) /
-            report.totalPossibleNodes,
-        ) * 100
-      ).toFixed(1)
-    : "0.0";
-
+  const maxBar = Math.max(totalDailyKwh, optimizedKwh, dailyQuota, 0.01);
+  const totalKwhSaved = pruningHistory.reduce(
+    (sum, e) => sum + (e.kwhSaved ?? 0),
+    0,
+  );
+  const totalCostSaved = pruningHistory.reduce(
+    (sum, e) => sum + (e.costSaved ?? 0),
+    0,
+  );
+  const totalMinutesGained = pruningHistory.reduce(
+    (sum, e) => sum + (e.minutesGained ?? 0),
+    0,
+  );
+  const totalRecommendations = optSessions.reduce(
+    (sum, s) => sum + (s.candidates?.length ?? 0),
+    0,
+  );
+  const totalConfirmed = pruningHistory.length;
+  const acceptanceRate =
+    totalRecommendations > 0
+      ? ((totalConfirmed / totalRecommendations) * 100).toFixed(0)
+      : "0";
   const cardStyle = [
     s.card,
     { backgroundColor: colors.bgCard, borderColor: colors.borderDefault },
@@ -413,234 +450,7 @@ export default function ReportScreen() {
               </View>
             </View>
 
-            {/* ── ALGORITHM EFFICIENCY ──────────────────────────────────────── */}
-            {report && (
-              <>
-                <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
-                  ALGORITHM EFFICIENCY
-                </Text>
-                <View style={cardStyle}>
-                  <View style={{ padding: spacing.md, gap: 8 }}>
-                    <View style={s.effRow}>
-                      <Text
-                        style={[s.effLabel, { color: colors.textSecondary }]}
-                      >
-                        🌳 Total possible nodes (2ⁿ)
-                      </Text>
-                      <Text style={[s.effValue, { color: colors.textPrimary }]}>
-                        {report.totalPossibleNodes}
-                      </Text>
-                    </View>
-                    <View style={s.effRow}>
-                      <Text
-                        style={[s.effLabel, { color: colors.textSecondary }]}
-                      >
-                        🔍 Nodes explored (DFS)
-                      </Text>
-                      <Text style={[s.effValue, { color: colors.textPrimary }]}>
-                        {report.nodesExplored}
-                      </Text>
-                    </View>
-                    <View style={s.effRow}>
-                      <Text
-                        style={[s.effLabel, { color: colors.textSecondary }]}
-                      >
-                        ✂️ Branches pruned
-                      </Text>
-                      <Text style={[s.effValue, { color: colors.primary }]}>
-                        {pruningEfficiency}%
-                      </Text>
-                    </View>
-                    {/* Progress bar */}
-                    <View
-                      style={[
-                        s.progressTrack,
-                        { backgroundColor: colors.borderDefault },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          s.progressFill,
-                          {
-                            width:
-                              `${Math.max(0, Math.min(100, parseFloat(pruningEfficiency)))}%` as any,
-                            backgroundColor: colors.primary,
-                          },
-                        ]}
-                      />
-                    </View>
-                    <Text style={[s.effNote, { color: colors.textSecondary }]}>
-                      Pre-sorted by value density (Priority ÷ Cost/day) via
-                      Merge Sort O(n log n)
-                    </Text>
-                  </View>
-                </View>
-
-                {/* ── SORTED APPLIANCES TABLE ──────────────────────────────── */}
-                <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
-                  APPLIANCES · SORTED BY VALUE DENSITY
-                </Text>
-                <View style={cardStyle}>
-                  {/* Table header */}
-                  <View
-                    style={[
-                      s.tableHeader,
-                      { borderBottomColor: colors.borderDefault },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        s.tableHeaderCell,
-                        { flex: 2.5, color: colors.textSecondary },
-                      ]}
-                    >
-                      Appliance
-                    </Text>
-                    <Text
-                      style={[
-                        s.tableHeaderCell,
-                        { color: colors.textSecondary },
-                      ]}
-                    >
-                      Priority
-                    </Text>
-                    <Text
-                      style={[
-                        s.tableHeaderCell,
-                        { color: colors.textSecondary },
-                      ]}
-                    >
-                      ₱/day
-                    </Text>
-                    <Text
-                      style={[
-                        s.tableHeaderCell,
-                        { color: colors.textSecondary },
-                      ]}
-                    >
-                      State
-                    </Text>
-                  </View>
-                  {report.sortedAppliances.map((a, i) => (
-                    <View
-                      key={a.name}
-                      style={[
-                        s.tableRow,
-                        { borderBottomColor: colors.borderDefault },
-                        i % 2 === 0 && {
-                          backgroundColor: colors.bgSecondary + "60",
-                        },
-                        i === report.sortedAppliances.length - 1 && {
-                          borderBottomWidth: 0,
-                        },
-                      ]}
-                    >
-                      <View style={{ flex: 2.5 }}>
-                        <Text
-                          style={[
-                            s.tableCellMain,
-                            { color: colors.textPrimary },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {a.name}
-                        </Text>
-                        {a.scaled_up && (
-                          <Text style={{ fontSize: 10, color: colors.primary }}>
-                            ↑ Peak Hour
-                          </Text>
-                        )}
-                      </View>
-                      <Text
-                        style={[
-                          s.tableCell,
-                          { color: PRIORITY_COLOR[a.priority] },
-                        ]}
-                      >
-                        {PRIORITY_LABEL[a.priority] ?? a.priority}
-                      </Text>
-                      <Text
-                        style={[s.tableCell, { color: colors.textPrimary }]}
-                      >
-                        ₱{a.cost_per_day.toFixed(2)}
-                      </Text>
-                      <View
-                        style={[
-                          s.stateBadge,
-                          {
-                            backgroundColor: a.is_on
-                              ? "#eaf3de"
-                              : colors.priorityHighBg,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={{
-                            fontSize: 11,
-                            fontWeight: "700",
-                            color: a.is_on
-                              ? colors.secondary
-                              : colors.priorityHighText,
-                          }}
-                        >
-                          {a.is_on ? "ON" : "OFF"}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-
-                {/* ── DFS PRUNING LOG ──────────────────────────────────────── */}
-                <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
-                  DFS BRANCH & BOUND TRAVERSAL LOG
-                </Text>
-                <View style={cardStyle}>
-                  {report.pruningLog.length === 0 ? (
-                    <Text
-                      style={[s.emptyText, { color: colors.textSecondary }]}
-                    >
-                      No log available.
-                    </Text>
-                  ) : (
-                    report.pruningLog.map((step, i) => (
-                      <View
-                        key={i}
-                        style={[
-                          s.logRow,
-                          { borderBottomColor: colors.borderDefault },
-                          i === report.pruningLog.length - 1 && {
-                            borderBottomWidth: 0,
-                          },
-                        ]}
-                      >
-                        <Text style={s.logIcon}>
-                          {step.pruned ? "✂️" : "✅"}
-                        </Text>
-                        <View style={{ flex: 1 }}>
-                          <Text
-                            style={[s.logName, { color: colors.textPrimary }]}
-                          >
-                            {step.appliance}
-                          </Text>
-                          <Text
-                            style={[
-                              s.logDetail,
-                              { color: colors.textSecondary },
-                            ]}
-                          >
-                            {step.pruned
-                              ? `Pruned — ₱${step.cum_cost.toFixed(4)} > budget ₱${step.budget.toFixed(4)}`
-                              : `Included — cumulative: ₱${step.cum_cost.toFixed(4)}`}
-                          </Text>
-                        </View>
-                      </View>
-                    ))
-                  )}
-                </View>
-              </>
-            )}
-
-            {/* ── RECOMMENDED ON ────────────────────────────────────────────── */}
+            {/* RECOMMENDED ON */}
             <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
               RECOMMENDED ON
             </Text>
@@ -701,8 +511,181 @@ export default function ReportScreen() {
                 ))
               )}
             </View>
+            {/* RECOMMENDATIONS */}
+            {recommendations.length > 0 && (
+              <>
+                <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+                  RECOMMENDATIONS
+                </Text>
+                <View style={cardStyle}>
+                  {recommendations.map((rec, i) => (
+                    <View
+                      key={rec.applianceId}
+                      style={[
+                        s.applianceRow,
+                        { borderBottomColor: colors.borderDefault },
+                        i === recommendations.length - 1 && {
+                          borderBottomWidth: 0,
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          s.applianceIcon,
+                          {
+                            backgroundColor:
+                              rec.action === "turn_off"
+                                ? colors.priorityHighBg
+                                : "#eaf3de",
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={rec.action === "turn_off" ? "power" : "flash"}
+                          size={18}
+                          color={
+                            rec.action === "turn_off"
+                              ? colors.priorityHighText
+                              : colors.secondary
+                          }
+                        />
+                      </View>
+                      <View style={s.applianceInfo}>
+                        <Text
+                          style={[
+                            s.applianceName,
+                            { color: colors.textPrimary },
+                          ]}
+                        >
+                          {rec.applianceName}
+                        </Text>
+                        <Text
+                          style={[
+                            s.applianceSub,
+                            { color: colors.textSecondary },
+                          ]}
+                        >
+                          {rec.reason}
+                        </Text>
+                        {rec.action === "turn_off" && (
+                          <Text
+                            style={[
+                              s.applianceSub,
+                              { color: colors.secondary },
+                            ]}
+                          >
+                            Saves ₱{rec.estimatedCostSaved.toFixed(2)} · +
+                            {Math.round(rec.estimatedMinutesGained)}min
+                          </Text>
+                        )}
+                      </View>
+                      <View
+                        style={[
+                          s.statusBadge,
+                          {
+                            backgroundColor:
+                              rec.action === "turn_off"
+                                ? colors.priorityHighBg
+                                : "#eaf3de",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            s.statusText,
+                            {
+                              color:
+                                rec.action === "turn_off"
+                                  ? colors.priorityHighText
+                                  : colors.secondary,
+                            },
+                          ]}
+                        >
+                          {rec.action === "turn_off" ? "OFF" : "ON"}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
 
-            {/* ── SUGGESTED TO PRUNE ────────────────────────────────────────── */}
+                {/* SCHEDULE */}
+                <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+                  ENERGY SCHEDULE
+                </Text>
+                <View style={cardStyle}>
+                  {schedule.map((entry, i) => (
+                    <View
+                      key={entry.applianceId}
+                      style={[
+                        s.applianceRow,
+                        { borderBottomColor: colors.borderDefault },
+                        i === schedule.length - 1 && { borderBottomWidth: 0 },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          s.applianceIcon,
+                          {
+                            backgroundColor: entry.willExceedQuota
+                              ? colors.priorityHighBg
+                              : colors.bgListIcon,
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="time-outline"
+                          size={18}
+                          color={
+                            entry.willExceedQuota
+                              ? colors.priorityHighText
+                              : colors.textSecondary
+                          }
+                        />
+                      </View>
+                      <View style={s.applianceInfo}>
+                        <Text
+                          style={[
+                            s.applianceName,
+                            { color: colors.textPrimary },
+                          ]}
+                        >
+                          {entry.applianceName}
+                        </Text>
+                        <Text
+                          style={[
+                            s.applianceSub,
+                            { color: colors.textSecondary },
+                          ]}
+                        >
+                          {entry.allowedHours.toFixed(1)}h allowed
+                          {entry.recommendedShutoffTime
+                            ? ` · shutoff by ${entry.recommendedShutoffTime}`
+                            : ""}
+                        </Text>
+                      </View>
+                      {entry.willExceedQuota && (
+                        <View
+                          style={[
+                            s.statusBadge,
+                            { backgroundColor: colors.priorityHighBg },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              s.statusText,
+                              { color: colors.priorityHighText },
+                            ]}
+                          >
+                            RISK
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+            {/* SUGGESTED TO PRUNE */}
             {prunedAppliances.length > 0 && (
               <>
                 <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
@@ -773,11 +756,74 @@ export default function ReportScreen() {
                     </View>
                   ))}
                 </View>
+
+                {excessKwh > 0 && (
+                  <View style={[cardStyle, { marginTop: spacing.sm }]}>
+                    <View style={s.statRow}>
+                      <View style={s.statItem}>
+                        <Text
+                          style={[
+                            s.statValue,
+                            { color: colors.priorityHighText },
+                          ]}
+                        >
+                          {((totalDailyKwh / dailyQuota) * 100).toFixed(1)}%
+                        </Text>
+                        <Text
+                          style={[s.statLabel, { color: colors.textSecondary }]}
+                        >
+                          current usage
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          s.statDivider,
+                          { backgroundColor: colors.borderDefault },
+                        ]}
+                      />
+                      <View style={s.statItem}>
+                        <Text
+                          style={[
+                            s.statValue,
+                            { color: colors.priorityHighText },
+                          ]}
+                        >
+                          {excessKwh.toFixed(2)} kWh
+                        </Text>
+                        <Text
+                          style={[s.statLabel, { color: colors.textSecondary }]}
+                        >
+                          over quota
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          s.statDivider,
+                          { backgroundColor: colors.borderDefault },
+                        ]}
+                      />
+                      <View style={s.statItem}>
+                        <Text
+                          style={[
+                            s.statValue,
+                            { color: colors.priorityHighText },
+                          ]}
+                        >
+                          ₱{excessCost.toFixed(2)}
+                        </Text>
+                        <Text
+                          style={[s.statLabel, { color: colors.textSecondary }]}
+                        >
+                          extra cost
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
               </>
             )}
 
-            {/* ── HOW IT WORKS ──────────────────────────────────────────────── */}
-            {report && <AlgorithmVisualizer report={report} colors={colors} />}
+            {/* HOW IT WORKS */}
             <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
               HOW IT WORKS
             </Text>
@@ -840,6 +886,244 @@ export default function ReportScreen() {
                     >
                       {item.desc}
                     </Text>
+                    {/* SAVINGS SUMMARY */}
+                    <Text
+                      style={[s.sectionLabel, { color: colors.textSecondary }]}
+                    >
+                      SAVINGS SUMMARY
+                    </Text>
+                    <View style={cardStyle}>
+                      <View style={s.statRow}>
+                        <View style={s.statItem}>
+                          <Text
+                            style={[s.statValue, { color: colors.secondary }]}
+                          >
+                            {totalKwhSaved.toFixed(2)}
+                          </Text>
+                          <Text
+                            style={[
+                              s.statLabel,
+                              { color: colors.textSecondary },
+                            ]}
+                          >
+                            kWh saved
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            s.statDivider,
+                            { backgroundColor: colors.borderDefault },
+                          ]}
+                        />
+                        <View style={s.statItem}>
+                          <Text
+                            style={[s.statValue, { color: colors.secondary }]}
+                          >
+                            ₱{totalCostSaved.toFixed(2)}
+                          </Text>
+                          <Text
+                            style={[
+                              s.statLabel,
+                              { color: colors.textSecondary },
+                            ]}
+                          >
+                            cost saved
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            s.statDivider,
+                            { backgroundColor: colors.borderDefault },
+                          ]}
+                        />
+                        <View style={s.statItem}>
+                          <Text
+                            style={[s.statValue, { color: colors.primary }]}
+                          >
+                            {Math.round(totalMinutesGained)}m
+                          </Text>
+                          <Text
+                            style={[
+                              s.statLabel,
+                              { color: colors.textSecondary },
+                            ]}
+                          >
+                            time gained
+                          </Text>
+                        </View>
+                      </View>
+                      <View
+                        style={[
+                          s.statRow,
+                          {
+                            borderTopWidth: 0.5,
+                            borderTopColor: colors.borderDefault,
+                          },
+                        ]}
+                      >
+                        <View style={s.statItem}>
+                          <Text
+                            style={[s.statValue, { color: colors.textPrimary }]}
+                          >
+                            {totalRecommendations}
+                          </Text>
+                          <Text
+                            style={[
+                              s.statLabel,
+                              { color: colors.textSecondary },
+                            ]}
+                          >
+                            recommended
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            s.statDivider,
+                            { backgroundColor: colors.borderDefault },
+                          ]}
+                        />
+                        <View style={s.statItem}>
+                          <Text
+                            style={[s.statValue, { color: colors.textPrimary }]}
+                          >
+                            {totalConfirmed}
+                          </Text>
+                          <Text
+                            style={[
+                              s.statLabel,
+                              { color: colors.textSecondary },
+                            ]}
+                          >
+                            confirmed
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            s.statDivider,
+                            { backgroundColor: colors.borderDefault },
+                          ]}
+                        />
+                        <View style={s.statItem}>
+                          <Text
+                            style={[s.statValue, { color: colors.textPrimary }]}
+                          >
+                            {acceptanceRate}%
+                          </Text>
+                          <Text
+                            style={[
+                              s.statLabel,
+                              { color: colors.textSecondary },
+                            ]}
+                          >
+                            acceptance
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* OPTIMIZATION HISTORY */}
+                    {pruningHistory.length > 0 && (
+                      <>
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginTop: spacing.lg,
+                          }}
+                        >
+                          <Text
+                            style={[
+                              s.sectionLabel,
+                              { color: colors.textSecondary, marginTop: 0 },
+                            ]}
+                          >
+                            OPTIMIZATION HISTORY
+                          </Text>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              await AsyncStorage.multiRemove([
+                                "@tipid_pruning_history",
+                                "@tipid_optimization_sessions",
+                              ]);
+                              setPruningHistory([]);
+                              setOptSessions([]);
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: colors.danger,
+                                fontSize: fontSizes.sm,
+                              }}
+                            >
+                              Clear
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                        <View style={cardStyle}>
+                          {pruningHistory.map((entry, i) => (
+                            <View
+                              key={entry.id}
+                              style={[
+                                s.applianceRow,
+                                { borderBottomColor: colors.borderDefault },
+                                i === pruningHistory.length - 1 && {
+                                  borderBottomWidth: 0,
+                                },
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  s.applianceIcon,
+                                  { backgroundColor: "#eaf3de" },
+                                ]}
+                              >
+                                <Ionicons
+                                  name="checkmark-circle-outline"
+                                  size={18}
+                                  color={colors.secondary}
+                                />
+                              </View>
+                              <View style={s.applianceInfo}>
+                                <Text
+                                  style={[
+                                    s.applianceName,
+                                    { color: colors.textPrimary },
+                                  ]}
+                                >
+                                  {entry.applianceName}
+                                </Text>
+                                <Text
+                                  style={[
+                                    s.applianceSub,
+                                    { color: colors.textSecondary },
+                                  ]}
+                                >
+                                  {new Date(entry.timestamp).toLocaleString()} ·{" "}
+                                  {entry.kwhSaved?.toFixed(3) ?? "0"} kWh · ₱
+                                  {entry.costSaved?.toFixed(2) ?? "0.00"} saved
+                                </Text>
+                              </View>
+                              <View
+                                style={[
+                                  s.statusBadge,
+                                  { backgroundColor: "#eaf3de" },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    s.statusText,
+                                    { color: colors.secondary },
+                                  ]}
+                                >
+                                  +{Math.round(entry.minutesGained ?? 0)}m
+                                </Text>
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      </>
+                    )}
                   </View>
                 </View>
               ))}

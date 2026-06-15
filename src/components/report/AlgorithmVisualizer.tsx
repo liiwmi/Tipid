@@ -291,8 +291,81 @@ function DFSTree({
   );
 }
 
+// ── AnimCard — defined outside MergeSortViz to prevent remounting on re-render
+const PILL_COLORS: Record<number, string | undefined> = {};
+
+function AnimCard({
+  a,
+  visible,
+  final: isFinal,
+  colors,
+}: {
+  a: SortedAppliance;
+  visible: boolean;
+  final: boolean;
+  colors: AppColors;
+}) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: visible ? 1 : 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [visible]);
+
+  const pillColor =
+    a.priority === 3
+      ? colors.priorityHighText
+      : a.priority === 2
+        ? colors.priorityMedText
+        : colors.priorityLowText;
+
+  const density =
+    a.cost_per_day > 0 ? (a.priority / a.cost_per_day).toFixed(2) : "∞";
+
+  return (
+    <Animated.View
+      style={{
+        opacity: anim,
+        transform: [
+          {
+            translateY: anim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [12, 0],
+            }),
+          },
+        ],
+        backgroundColor: isFinal ? colors.secondary + "22" : colors.bgSecondary,
+        borderWidth: 1,
+        borderColor: isFinal ? colors.secondary : colors.borderDefault,
+        borderRadius: borderRadius.md,
+        padding: spacing.sm,
+        alignItems: "center",
+        minWidth: 68,
+      }}
+    >
+      <Text
+        style={{
+          fontSize: fontSizes.xs,
+          fontWeight: fontWeights.bold,
+          color: pillColor,
+        }}
+      >
+        {shortName(a.name)}
+      </Text>
+      <Text style={{ fontSize: 9, color: colors.textSecondary, marginTop: 2 }}>
+        P={a.priority}
+      </Text>
+      <Text style={{ fontSize: 9, color: colors.primary, marginTop: 1 }}>
+        d={density}
+      </Text>
+    </Animated.View>
+  );
+}
+
 // ── Merge Sort Visualizer ─────────────────────────────────────────────────────
-// All stages visible at once. Play slides cards in one by one per stage.
 function MergeSortViz({
   report,
   colors,
@@ -320,7 +393,6 @@ function MergeSortViz({
     },
   ];
 
-  // visibleCount[stageIndex] = how many cards are visible in that stage
   const [visibleCounts, setVisibleCounts] = useState<number[]>(
     allStages.map(() => 0),
   );
@@ -328,10 +400,8 @@ function MergeSortViz({
 
   useEffect(() => {
     if (playing) {
-      // Reset
       setVisibleCounts(allStages.map(() => 0));
 
-      // Flatten all cards: [stageIdx, cardIdx]
       type Tick = { si: number; ci: number };
       const ticks: Tick[] = [];
       allStages.forEach((stage, si) => {
@@ -362,81 +432,6 @@ function MergeSortViz({
     };
   }, [playing]);
 
-  const PILL_COLORS: Record<number, string> = {
-    3: colors.priorityHighText,
-    2: colors.priorityMedText,
-    1: colors.priorityLowText,
-  };
-
-  function densityLabel(a: SortedAppliance): string {
-    return a.cost_per_day > 0 ? (a.priority / a.cost_per_day).toFixed(2) : "∞";
-  }
-
-  // Animated wrapper per card
-  function AnimCard({
-    a,
-    visible,
-    final: isFinal,
-    idx,
-  }: {
-    a: SortedAppliance;
-    visible: boolean;
-    final: boolean;
-    idx: number;
-  }) {
-    const anim = useRef(new Animated.Value(0)).current;
-    useEffect(() => {
-      Animated.timing(anim, {
-        toValue: visible ? 1 : 0,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-    }, [visible]);
-
-    return (
-      <Animated.View
-        style={{
-          opacity: anim,
-          transform: [
-            {
-              translateY: anim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [12, 0],
-              }),
-            },
-          ],
-          backgroundColor: isFinal
-            ? colors.secondary + "22"
-            : colors.bgSecondary,
-          borderWidth: 1,
-          borderColor: isFinal ? colors.secondary : colors.borderDefault,
-          borderRadius: borderRadius.md,
-          padding: spacing.sm,
-          alignItems: "center",
-          minWidth: 68,
-        }}
-      >
-        <Text
-          style={{
-            fontSize: fontSizes.xs,
-            fontWeight: fontWeights.bold,
-            color: PILL_COLORS[a.priority] ?? colors.textPrimary,
-          }}
-        >
-          {shortName(a.name)}
-        </Text>
-        <Text
-          style={{ fontSize: 9, color: colors.textSecondary, marginTop: 2 }}
-        >
-          P={a.priority}
-        </Text>
-        <Text style={{ fontSize: 9, color: colors.primary, marginTop: 1 }}>
-          d={densityLabel(a)}
-        </Text>
-      </Animated.View>
-    );
-  }
-
   return (
     <View style={{ gap: spacing.md }}>
       {allStages.map((stage, si) => (
@@ -454,11 +449,11 @@ function MergeSortViz({
             <View style={{ flexDirection: "row", gap: 6 }}>
               {stage.row.map((a, ci) => (
                 <AnimCard
-                  key={ci}
+                  key={`${si}-${ci}-${a.name}`}
                   a={a}
                   visible={ci < visibleCounts[si]}
                   final={stage.final}
-                  idx={ci}
+                  colors={colors}
                 />
               ))}
             </View>

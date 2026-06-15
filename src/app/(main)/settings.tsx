@@ -470,6 +470,7 @@ export default function SettingsScreen() {
               <Text style={[s.rowTitle, { color: colors.textPrimary }]}>
                 Terms & Conditions
               </Text>
+              ~
             </TouchableOpacity>
             <Ionicons
               name="chevron-forward"

@@ -7,7 +7,7 @@ PRIORITY_MEDIUM = 2
 PRIORITY_LOW    = 1
 
 
-# ── Stage A: Adaptive Priority Scaling ────────────────────────────────────────
+# ── Adaptive Priority Scaling ────────────────────────────────────────
 #         "Medium Priority appliances are adaptively upgraded to High Priority
 #         during user-defined Peak Hours"
 def apply_priority_scaling(items: List[Dict], current_hour: int) -> List[Dict]:
@@ -20,7 +20,7 @@ def apply_priority_scaling(items: List[Dict], current_hour: int) -> List[Dict]:
         peak_end   = item.get("peak_end")
 
         if peak_start is not None and peak_end is not None:
-            # ✅ Use strict less than for end (consistent with frontend)
+            # Use strict less than for end (consistent with frontend)
             if peak_start <= current_hour < peak_end:
                 new_item["priority"] = round(new_item["priority"] * 1.5)
         elif peak_start is not None:

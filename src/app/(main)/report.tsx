@@ -1,4 +1,3 @@
-import AlgorithmVisualizer from "@/src/components/report/AlgorithmVisualizer";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "expo-router";
@@ -125,6 +124,7 @@ export default function ReportScreen() {
             effectiveBudget,
             electricityRate,
             currentHour,
+            totalDailyKwh,
           );
 
           // Normalise: optimizer returns { turn_on: string[], total_priority_value }
@@ -244,7 +244,18 @@ export default function ReportScreen() {
             })}
           </Text>
         )}
-        {report?.peakHourActive && (
+        {appliances.some(
+          (a) =>
+            a.priority === "medium" &&
+            a.peak_start !== null &&
+            a.peak_end !== null &&
+            (() => {
+              const hour = new Date().getHours();
+              const start = parseInt(a.peak_start!.split(":")[0], 10);
+              const end = parseInt(a.peak_end!.split(":")[0], 10);
+              return start <= hour && hour < end;
+            })(),
+        ) && (
           <View style={[s.peakBanner, { backgroundColor: colors.primary }]}>
             <Ionicons name="time-outline" size={14} color="#fff" />
             <Text style={s.peakBannerText}>
@@ -657,7 +668,9 @@ export default function ReportScreen() {
                             { color: colors.textSecondary },
                           ]}
                         >
-                          {entry.allowedHours.toFixed(1)}h allowed
+                          {entry.allowedHours != null
+                            ? `${entry.allowedHours.toFixed(1)}h allowed`
+                            : "No limit"}
                           {entry.recommendedShutoffTime
                             ? ` · shutoff by ${entry.recommendedShutoffTime}`
                             : ""}

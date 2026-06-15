@@ -517,23 +517,58 @@ export function useAppliances() {
   async function addAppliance(
     appliance: Omit<Appliance, "id" | "created_at" | "user_id">,
   ) {
+    // Use cached session instead of a network call every time
     const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return Alert.alert("Error", "Not authenticated.");
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.user) return Alert.alert("Error", "Not authenticated.");
+    const user = session.user;
 
-    const online = await checkOnline();
-    setIsOnline(online);
+    const online = isOnline; // use existing state, don't re-check network
 
     if (online) {
-      const { error } = await supabase
+      // Optimistic update — show it immediately before Supabase confirms
+      const optimistic: Appliance = {
+        ...appliance,
+        id: `temp_${Date.now()}`,
+        user_id: user.id,
+        created_at: new Date().toISOString(),
+      };
+      const optimisticList = [optimistic, ...appliancesRef.current];
+      setAppliances(optimisticList);
+      await saveCache(optimisticList);
+
+      // Then insert to Supabase in the background
+      const { data, error } = await supabase
         .from("appliances")
-        .insert({ ...appliance, user_id: user.id });
+        .insert({ ...appliance, user_id: user.id })
+        .select()
+        .single();
+
       if (error) {
+        // Rollback optimistic update
+        setAppliances(
+          appliancesRef.current.filter((a) => a.id !== optimistic.id),
+        );
+        await saveCache(appliancesRef.current);
         Alert.alert("Error", error.message);
         return;
       }
-      await fetchFromServer();
+
+      // Replace temp id with real id from Supabase
+      const confirmed = appliancesRef.current.map((a) =>
+        a.id === optimistic.id
+          ? { ...a, id: data.id, created_at: data.created_at }
+          : a,
+      );
+      setAppliances(confirmed);
+      await saveCache(confirmed);
+
+      const newKwh = confirmed.reduce(
+        (sum, a) => sum + (a.watts * a.hours_per_day) / 1000,
+        0,
+      );
+      await upsertDailyHistory(newKwh);
     } else {
       const queue = await getPendingQueue();
       queue.push({ ...appliance, user_id: user.id });
@@ -549,7 +584,6 @@ export function useAppliances() {
       setAppliances(updated);
       await saveCache(updated);
 
-      // Snapshot updated total after offline add
       const newKwh = updated.reduce(
         (sum, a) => sum + (a.watts * a.hours_per_day) / 1000,
         0,

@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useSettings } from "../../context/SettingsContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useAppliances } from "../../hooks/useAppliance";
+import { useRecommendations } from "../../hooks/useRecommendation";
 import { runOptimization } from "../../services/optimizer";
 import {
   borderRadius,
@@ -53,6 +54,9 @@ export default function ReportScreen() {
   );
   const excessKwh = Math.max(totalDailyKwh - dailyQuota, 0);
   const excessCost = excessKwh * electricityRate;
+  const { recommendations, schedule, lastRunAt, runRecommendations } =
+    useRecommendations();
+
   // ── LOAD CACHED RESULT ────────────────────────────────────
   useEffect(() => {
     (async () => {
@@ -493,7 +497,180 @@ export default function ReportScreen() {
                 ))
               )}
             </View>
+            {/* RECOMMENDATIONS */}
+            {recommendations.length > 0 && (
+              <>
+                <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+                  RECOMMENDATIONS
+                </Text>
+                <View style={cardStyle}>
+                  {recommendations.map((rec, i) => (
+                    <View
+                      key={rec.applianceId}
+                      style={[
+                        s.applianceRow,
+                        { borderBottomColor: colors.borderDefault },
+                        i === recommendations.length - 1 && {
+                          borderBottomWidth: 0,
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          s.applianceIcon,
+                          {
+                            backgroundColor:
+                              rec.action === "turn_off"
+                                ? colors.priorityHighBg
+                                : "#eaf3de",
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={rec.action === "turn_off" ? "power" : "flash"}
+                          size={18}
+                          color={
+                            rec.action === "turn_off"
+                              ? colors.priorityHighText
+                              : colors.secondary
+                          }
+                        />
+                      </View>
+                      <View style={s.applianceInfo}>
+                        <Text
+                          style={[
+                            s.applianceName,
+                            { color: colors.textPrimary },
+                          ]}
+                        >
+                          {rec.applianceName}
+                        </Text>
+                        <Text
+                          style={[
+                            s.applianceSub,
+                            { color: colors.textSecondary },
+                          ]}
+                        >
+                          {rec.reason}
+                        </Text>
+                        {rec.action === "turn_off" && (
+                          <Text
+                            style={[
+                              s.applianceSub,
+                              { color: colors.secondary },
+                            ]}
+                          >
+                            Saves ₱{rec.estimatedCostSaved.toFixed(2)} · +
+                            {Math.round(rec.estimatedMinutesGained)}min
+                          </Text>
+                        )}
+                      </View>
+                      <View
+                        style={[
+                          s.statusBadge,
+                          {
+                            backgroundColor:
+                              rec.action === "turn_off"
+                                ? colors.priorityHighBg
+                                : "#eaf3de",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            s.statusText,
+                            {
+                              color:
+                                rec.action === "turn_off"
+                                  ? colors.priorityHighText
+                                  : colors.secondary,
+                            },
+                          ]}
+                        >
+                          {rec.action === "turn_off" ? "OFF" : "ON"}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
 
+                {/* SCHEDULE */}
+                <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+                  ENERGY SCHEDULE
+                </Text>
+                <View style={cardStyle}>
+                  {schedule.map((entry, i) => (
+                    <View
+                      key={entry.applianceId}
+                      style={[
+                        s.applianceRow,
+                        { borderBottomColor: colors.borderDefault },
+                        i === schedule.length - 1 && { borderBottomWidth: 0 },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          s.applianceIcon,
+                          {
+                            backgroundColor: entry.willExceedQuota
+                              ? colors.priorityHighBg
+                              : colors.bgListIcon,
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="time-outline"
+                          size={18}
+                          color={
+                            entry.willExceedQuota
+                              ? colors.priorityHighText
+                              : colors.textSecondary
+                          }
+                        />
+                      </View>
+                      <View style={s.applianceInfo}>
+                        <Text
+                          style={[
+                            s.applianceName,
+                            { color: colors.textPrimary },
+                          ]}
+                        >
+                          {entry.applianceName}
+                        </Text>
+                        <Text
+                          style={[
+                            s.applianceSub,
+                            { color: colors.textSecondary },
+                          ]}
+                        >
+                          {entry.allowedHours.toFixed(1)}h allowed
+                          {entry.recommendedShutoffTime
+                            ? ` · shutoff by ${entry.recommendedShutoffTime}`
+                            : ""}
+                        </Text>
+                      </View>
+                      {entry.willExceedQuota && (
+                        <View
+                          style={[
+                            s.statusBadge,
+                            { backgroundColor: colors.priorityHighBg },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              s.statusText,
+                              { color: colors.priorityHighText },
+                            ]}
+                          >
+                            RISK
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
             {/* SUGGESTED TO PRUNE */}
             {prunedAppliances.length > 0 && (
               <>

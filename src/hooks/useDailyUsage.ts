@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
+import { getLast7DaysLedger, recordEnergySnapshot } from '../services/energyLedger';
 
 const HISTORY_KEY = '@tipid_daily_history';
 const MAX_DAYS = 7;
@@ -88,21 +89,32 @@ function buildLast7Days(history: DailyRecord[]): DayUsage[] {
 export function useDailyUsage(totalDailyKwh: number): DayUsage[] {
   const [weeklyData, setWeeklyData] = useState<DayUsage[]>([]);
 
-  // On mount — load persisted history immediately
   useEffect(() => {
     (async () => {
-      const history = await loadHistory();
-      setWeeklyData(buildLast7Days(history));
+      const ledgerDays = await getLast7DaysLedger();
+      const mapped: DayUsage[] = ledgerDays.map((entry) => ({
+        day: getDayLabel(entry.date),
+        date: entry.date,
+        value: entry.accumulatedKwh,
+        isToday: entry.date === getTodayString(),
+      }));
+      setWeeklyData(mapped);
     })();
   }, []);
 
-  // Whenever totalDailyKwh changes — persist today's value
   useEffect(() => {
     if (totalDailyKwh <= 0) return;
-
     (async () => {
-      const history = await upsertToday(totalDailyKwh);
-      setWeeklyData(buildLast7Days(history));
+      // recordEnergySnapshot never decreases — safe to call on every change
+      await recordEnergySnapshot(totalDailyKwh);
+      const ledgerDays = await getLast7DaysLedger();
+      const mapped: DayUsage[] = ledgerDays.map((entry) => ({
+        day: getDayLabel(entry.date),
+        date: entry.date,
+        value: entry.accumulatedKwh,
+        isToday: entry.date === getTodayString(),
+      }));
+      setWeeklyData(mapped);
     })();
   }, [totalDailyKwh]);
 

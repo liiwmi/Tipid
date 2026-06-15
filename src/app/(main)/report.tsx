@@ -1,3 +1,4 @@
+import AlgorithmVisualizer from "@/src/components/report/AlgorithmVisualizer";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useCallback, useEffect, useState } from "react";
@@ -22,10 +23,55 @@ import {
   spacing,
 } from "../../styles/theme";
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface PruneStep {
+  appliance: string;
+  pruned: boolean;
+  cum_cost: number;
+  budget: number;
+  action: string;
+}
+
+interface SortedAppliance {
+  name: string;
+  watts: number;
+  hours_per_day: number;
+  cost_per_day: number;
+  priority: number; // numeric: 3=High, 2=Medium, 1=Low
+  scaled_up: boolean;
+  is_on: boolean;
+}
+
+interface AlgorithmReport {
+  sortedAppliances: SortedAppliance[];
+  pruningLog: PruneStep[];
+  totalCostOnAppliances: number;
+  budgetThreshold: number;
+  nodesExplored: number;
+  totalPossibleNodes: number;
+  totalWattageOn: number;
+  peakHourActive: boolean;
+  currentHour: number;
+}
+
 interface OptimizationResult {
   turn_on: string[];
   total_priority_value: number;
+  report?: AlgorithmReport;
+  timestamp?: string;
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const PRIORITY_LABEL: Record<number, string> = {
+  3: "High",
+  2: "Medium",
+  1: "Low",
+};
+const PRIORITY_COLOR: Record<number, string> = {
+  3: "#CC3333",
+  2: "#E07B00",
+  1: "#4CAF50",
+};
 
 export default function ReportScreen() {
   const { colors } = useTheme();
@@ -40,7 +86,7 @@ export default function ReportScreen() {
   const [hasRun, setHasRun] = useState(false);
   const [lastRun, setLastRun] = useState<Date | null>(null);
 
-  // ── LOAD CACHED RESULT ────────────────────────────────────
+  // ── Load cached result ─────────────────────────────────────────────────────
   useEffect(() => {
     const loadCachedResult = async () => {
       try {
@@ -56,7 +102,7 @@ export default function ReportScreen() {
     loadCachedResult();
   }, []);
 
-  // ── RUN OPTIMIZATION ─────────────────────────────────────
+  // ── Run optimization ───────────────────────────────────────────────────────
   const runOptimizationAuto = useCallback(
     async (isAuto = false) => {
       setLoading(true);
@@ -88,36 +134,30 @@ export default function ReportScreen() {
 
   const handleOptimize = () => runOptimizationAuto(false);
 
-  // ── AUTO RE-RUN EVERY HOUR ────────────────────────────────
+  // ── Auto re-run every hour ─────────────────────────────────────────────────
   useEffect(() => {
     if (!hasRun) return;
-
     const now = new Date();
     const msUntilNextHour =
       (60 - now.getMinutes()) * 60 * 1000 - now.getSeconds() * 1000;
-
     const timeout = setTimeout(() => {
       runOptimizationAuto(true);
       const interval = setInterval(
-        () => {
-          runOptimizationAuto(true);
-        },
+        () => runOptimizationAuto(true),
         60 * 60 * 1000,
       );
       return () => clearInterval(interval);
     }, msUntilNextHour);
-
     return () => clearTimeout(timeout);
   }, [hasRun, runOptimizationAuto]);
 
-  // ── COMPUTED ──────────────────────────────────────────────
+  // ── Computed ───────────────────────────────────────────────────────────────
   const optimizedAppliances = appliances.filter((a) =>
     result?.turn_on.includes(a.name),
   );
   const prunedAppliances = appliances.filter(
     (a) => a.is_active && !result?.turn_on.includes(a.name),
   );
-
   const optimizedKwh = optimizedAppliances.reduce(
     (sum, a) => sum + (a.watts * a.hours_per_day) / 1000,
     0,
@@ -125,6 +165,17 @@ export default function ReportScreen() {
   const optimizedCost = optimizedKwh * electricityRate;
   const costSavings = totalDailyCost - optimizedCost;
   const maxBar = Math.max(totalDailyKwh, optimizedKwh, dailyQuota);
+
+  const report = result?.report;
+  const pruningEfficiency = report
+    ? (
+        Math.max(
+          0,
+          (report.totalPossibleNodes - report.nodesExplored) /
+            report.totalPossibleNodes,
+        ) * 100
+      ).toFixed(1)
+    : "0.0";
 
   const cardStyle = [
     s.card,
@@ -140,12 +191,12 @@ export default function ReportScreen() {
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* HEADER */}
+        {/* ── HEADER ────────────────────────────────────────────────────────── */}
         <Text style={[s.pageTitle, { color: colors.textPrimary }]}>
           Algorithm Report
         </Text>
         <Text style={[s.pageSub, { color: colors.textSecondary }]}>
-          Branch and Bound Knapsack Optimization
+          Depth-First Branch & Bound · 0/1 Knapsack
         </Text>
         {lastRun && (
           <Text style={[s.pageSub, { color: colors.textSecondary }]}>
@@ -156,8 +207,16 @@ export default function ReportScreen() {
             })}
           </Text>
         )}
+        {report?.peakHourActive && (
+          <View style={[s.peakBanner, { backgroundColor: colors.primary }]}>
+            <Ionicons name="time-outline" size={14} color="#fff" />
+            <Text style={s.peakBannerText}>
+              Peak Hour Active — Medium priorities upgraded to High
+            </Text>
+          </View>
+        )}
 
-        {/* BUDGET INPUT */}
+        {/* ── BUDGET INPUT ──────────────────────────────────────────────────── */}
         <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
           BUDGET
         </Text>
@@ -184,7 +243,7 @@ export default function ReportScreen() {
           </View>
         </View>
 
-        {/* RUN BUTTON */}
+        {/* ── RUN BUTTON ────────────────────────────────────────────────────── */}
         <TouchableOpacity
           style={[
             s.runBtn,
@@ -204,7 +263,7 @@ export default function ReportScreen() {
           )}
         </TouchableOpacity>
 
-        {/* CURRENT STATE */}
+        {/* ── CURRENT STATE ─────────────────────────────────────────────────── */}
         <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
           CURRENT STATE
         </Text>
@@ -243,84 +302,51 @@ export default function ReportScreen() {
           </View>
         </View>
 
-        {/* RESULTS */}
         {hasRun && result && (
           <>
-            {/* BAR CHART */}
+            {/* ── BAR CHART ─────────────────────────────────────────────────── */}
             <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
               USAGE COMPARISON
             </Text>
             <View style={cardStyle}>
               <View style={s.barChart}>
-                <View style={s.barGroup}>
-                  <Text
-                    style={[s.barChartValue, { color: colors.textPrimary }]}
-                  >
-                    {totalDailyKwh.toFixed(1)} kWh
-                  </Text>
-                  <View style={s.barTrack}>
-                    <View
-                      style={[
-                        s.barFill,
-                        {
-                          height: `${Math.min((totalDailyKwh / maxBar) * 100, 100)}%`,
-                          backgroundColor: colors.priorityHighText,
-                        },
-                      ]}
-                    />
+                {[
+                  {
+                    value: totalDailyKwh,
+                    label: "Current",
+                    color: colors.priorityHighText,
+                  },
+                  {
+                    value: optimizedKwh,
+                    label: "Optimized",
+                    color: colors.secondary,
+                  },
+                  { value: dailyQuota, label: "Quota", color: colors.primary },
+                ].map((bar) => (
+                  <View key={bar.label} style={s.barGroup}>
+                    <Text
+                      style={[s.barChartValue, { color: colors.textPrimary }]}
+                    >
+                      {bar.value.toFixed(1)} kWh
+                    </Text>
+                    <View style={s.barTrack}>
+                      <View
+                        style={[
+                          s.barFill,
+                          {
+                            height: `${Math.min((bar.value / maxBar) * 100, 100)}%`,
+                            backgroundColor: bar.color,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text
+                      style={[s.barChartLabel, { color: colors.textSecondary }]}
+                    >
+                      {bar.label}
+                    </Text>
                   </View>
-                  <Text
-                    style={[s.barChartLabel, { color: colors.textSecondary }]}
-                  >
-                    Current
-                  </Text>
-                </View>
-                <View style={s.barGroup}>
-                  <Text
-                    style={[s.barChartValue, { color: colors.textPrimary }]}
-                  >
-                    {optimizedKwh.toFixed(1)} kWh
-                  </Text>
-                  <View style={s.barTrack}>
-                    <View
-                      style={[
-                        s.barFill,
-                        {
-                          height: `${Math.min((optimizedKwh / maxBar) * 100, 100)}%`,
-                          backgroundColor: colors.secondary,
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text
-                    style={[s.barChartLabel, { color: colors.textSecondary }]}
-                  >
-                    Optimized
-                  </Text>
-                </View>
-                <View style={s.barGroup}>
-                  <Text
-                    style={[s.barChartValue, { color: colors.textPrimary }]}
-                  >
-                    {dailyQuota.toFixed(1)} kWh
-                  </Text>
-                  <View style={s.barTrack}>
-                    <View
-                      style={[
-                        s.barFill,
-                        {
-                          height: `${Math.min((dailyQuota / maxBar) * 100, 100)}%`,
-                          backgroundColor: colors.primary,
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text
-                    style={[s.barChartLabel, { color: colors.textSecondary }]}
-                  >
-                    Quota
-                  </Text>
-                </View>
+                ))}
               </View>
               <View style={s.legend}>
                 {[
@@ -342,7 +368,7 @@ export default function ReportScreen() {
               </View>
             </View>
 
-            {/* SAVINGS SUMMARY */}
+            {/* ── SAVINGS SUMMARY ───────────────────────────────────────────── */}
             <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
               OPTIMIZATION RESULT
             </Text>
@@ -387,7 +413,234 @@ export default function ReportScreen() {
               </View>
             </View>
 
-            {/* TURN ON */}
+            {/* ── ALGORITHM EFFICIENCY ──────────────────────────────────────── */}
+            {report && (
+              <>
+                <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+                  ALGORITHM EFFICIENCY
+                </Text>
+                <View style={cardStyle}>
+                  <View style={{ padding: spacing.md, gap: 8 }}>
+                    <View style={s.effRow}>
+                      <Text
+                        style={[s.effLabel, { color: colors.textSecondary }]}
+                      >
+                        🌳 Total possible nodes (2ⁿ)
+                      </Text>
+                      <Text style={[s.effValue, { color: colors.textPrimary }]}>
+                        {report.totalPossibleNodes}
+                      </Text>
+                    </View>
+                    <View style={s.effRow}>
+                      <Text
+                        style={[s.effLabel, { color: colors.textSecondary }]}
+                      >
+                        🔍 Nodes explored (DFS)
+                      </Text>
+                      <Text style={[s.effValue, { color: colors.textPrimary }]}>
+                        {report.nodesExplored}
+                      </Text>
+                    </View>
+                    <View style={s.effRow}>
+                      <Text
+                        style={[s.effLabel, { color: colors.textSecondary }]}
+                      >
+                        ✂️ Branches pruned
+                      </Text>
+                      <Text style={[s.effValue, { color: colors.primary }]}>
+                        {pruningEfficiency}%
+                      </Text>
+                    </View>
+                    {/* Progress bar */}
+                    <View
+                      style={[
+                        s.progressTrack,
+                        { backgroundColor: colors.borderDefault },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          s.progressFill,
+                          {
+                            width:
+                              `${Math.max(0, Math.min(100, parseFloat(pruningEfficiency)))}%` as any,
+                            backgroundColor: colors.primary,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={[s.effNote, { color: colors.textSecondary }]}>
+                      Pre-sorted by value density (Priority ÷ Cost/day) via
+                      Merge Sort O(n log n)
+                    </Text>
+                  </View>
+                </View>
+
+                {/* ── SORTED APPLIANCES TABLE ──────────────────────────────── */}
+                <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+                  APPLIANCES · SORTED BY VALUE DENSITY
+                </Text>
+                <View style={cardStyle}>
+                  {/* Table header */}
+                  <View
+                    style={[
+                      s.tableHeader,
+                      { borderBottomColor: colors.borderDefault },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        s.tableHeaderCell,
+                        { flex: 2.5, color: colors.textSecondary },
+                      ]}
+                    >
+                      Appliance
+                    </Text>
+                    <Text
+                      style={[
+                        s.tableHeaderCell,
+                        { color: colors.textSecondary },
+                      ]}
+                    >
+                      Priority
+                    </Text>
+                    <Text
+                      style={[
+                        s.tableHeaderCell,
+                        { color: colors.textSecondary },
+                      ]}
+                    >
+                      ₱/day
+                    </Text>
+                    <Text
+                      style={[
+                        s.tableHeaderCell,
+                        { color: colors.textSecondary },
+                      ]}
+                    >
+                      State
+                    </Text>
+                  </View>
+                  {report.sortedAppliances.map((a, i) => (
+                    <View
+                      key={a.name}
+                      style={[
+                        s.tableRow,
+                        { borderBottomColor: colors.borderDefault },
+                        i % 2 === 0 && {
+                          backgroundColor: colors.bgSecondary + "60",
+                        },
+                        i === report.sortedAppliances.length - 1 && {
+                          borderBottomWidth: 0,
+                        },
+                      ]}
+                    >
+                      <View style={{ flex: 2.5 }}>
+                        <Text
+                          style={[
+                            s.tableCellMain,
+                            { color: colors.textPrimary },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {a.name}
+                        </Text>
+                        {a.scaled_up && (
+                          <Text style={{ fontSize: 10, color: colors.primary }}>
+                            ↑ Peak Hour
+                          </Text>
+                        )}
+                      </View>
+                      <Text
+                        style={[
+                          s.tableCell,
+                          { color: PRIORITY_COLOR[a.priority] },
+                        ]}
+                      >
+                        {PRIORITY_LABEL[a.priority] ?? a.priority}
+                      </Text>
+                      <Text
+                        style={[s.tableCell, { color: colors.textPrimary }]}
+                      >
+                        ₱{a.cost_per_day.toFixed(2)}
+                      </Text>
+                      <View
+                        style={[
+                          s.stateBadge,
+                          {
+                            backgroundColor: a.is_on
+                              ? "#eaf3de"
+                              : colors.priorityHighBg,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            fontWeight: "700",
+                            color: a.is_on
+                              ? colors.secondary
+                              : colors.priorityHighText,
+                          }}
+                        >
+                          {a.is_on ? "ON" : "OFF"}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+
+                {/* ── DFS PRUNING LOG ──────────────────────────────────────── */}
+                <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
+                  DFS BRANCH & BOUND TRAVERSAL LOG
+                </Text>
+                <View style={cardStyle}>
+                  {report.pruningLog.length === 0 ? (
+                    <Text
+                      style={[s.emptyText, { color: colors.textSecondary }]}
+                    >
+                      No log available.
+                    </Text>
+                  ) : (
+                    report.pruningLog.map((step, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          s.logRow,
+                          { borderBottomColor: colors.borderDefault },
+                          i === report.pruningLog.length - 1 && {
+                            borderBottomWidth: 0,
+                          },
+                        ]}
+                      >
+                        <Text style={s.logIcon}>
+                          {step.pruned ? "✂️" : "✅"}
+                        </Text>
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[s.logName, { color: colors.textPrimary }]}
+                          >
+                            {step.appliance}
+                          </Text>
+                          <Text
+                            style={[
+                              s.logDetail,
+                              { color: colors.textSecondary },
+                            ]}
+                          >
+                            {step.pruned
+                              ? `Pruned — ₱${step.cum_cost.toFixed(4)} > budget ₱${step.budget.toFixed(4)}`
+                              : `Included — cumulative: ₱${step.cum_cost.toFixed(4)}`}
+                          </Text>
+                        </View>
+                      </View>
+                    ))
+                  )}
+                </View>
+              </>
+            )}
+
+            {/* ── RECOMMENDED ON ────────────────────────────────────────────── */}
             <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
               RECOMMENDED ON
             </Text>
@@ -449,7 +702,7 @@ export default function ReportScreen() {
               )}
             </View>
 
-            {/* PRUNE */}
+            {/* ── SUGGESTED TO PRUNE ────────────────────────────────────────── */}
             {prunedAppliances.length > 0 && (
               <>
                 <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
@@ -523,31 +776,37 @@ export default function ReportScreen() {
               </>
             )}
 
-            {/* ALGORITHM EXPLANATION */}
+            {/* ── HOW IT WORKS ──────────────────────────────────────────────── */}
+            {report && <AlgorithmVisualizer report={report} colors={colors} />}
             <Text style={[s.sectionLabel, { color: colors.textSecondary }]}>
               HOW IT WORKS
             </Text>
             <View style={cardStyle}>
               {[
                 {
+                  icon: "analytics-outline",
+                  title: "Merge Sort (O n log n)",
+                  desc: "Appliances are sorted by value density (Priority ÷ Cost) before the search begins, ensuring the best candidates are explored first.",
+                },
+                {
                   icon: "git-branch-outline",
-                  title: "Branch and Bound",
-                  desc: "Explores all possible combinations of appliances using a decision tree, branching on whether to include or exclude each appliance.",
+                  title: "Depth-First Branch & Bound",
+                  desc: "Explores the decision tree using a stack — going deep into include/exclude branches before backtracking, minimising memory usage.",
                 },
                 {
                   icon: "cut-outline",
-                  title: "Pruning",
-                  desc: "Branches where the upper bound of priority is lower than the current best solution are pruned, drastically reducing computation.",
+                  title: "Budget Pruning",
+                  desc: "Any branch where cumulative cost exceeds the daily budget is cut immediately, avoiding unnecessary computation.",
                 },
                 {
-                  icon: "trending-up-outline",
-                  title: "Priority Scaling",
-                  desc: "Appliances in their peak hour window receive a +5 priority boost, ensuring time-sensitive appliances are prioritized.",
+                  icon: "shield-checkmark-outline",
+                  title: "High Priority Safeguard",
+                  desc: "High priority appliances are always included. The algorithm never explores a branch that excludes an essential appliance.",
                 },
                 {
-                  icon: "checkmark-circle-outline",
-                  title: "Optimal Result",
-                  desc: "The algorithm guarantees the maximum priority value within your budget — not just a good solution, but the best one.",
+                  icon: "time-outline",
+                  title: "Peak Hour Scaling",
+                  desc: "Medium priority appliances are hard-upgraded to High during user-defined peak hours, protecting time-sensitive devices.",
                 },
               ].map((item, i, arr) => (
                 <View
@@ -594,6 +853,7 @@ export default function ReportScreen() {
   );
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   safe: { flex: 1 },
   scroll: { padding: spacing.lg },
@@ -602,7 +862,7 @@ const s = StyleSheet.create({
     fontWeight: fontWeights.bold,
     marginTop: spacing.sm,
   },
-  pageSub: { fontSize: fontSizes.sm, marginBottom: spacing.lg, marginTop: 4 },
+  pageSub: { fontSize: fontSizes.sm, marginBottom: 4, marginTop: 4 },
   sectionLabel: {
     fontSize: fontSizes.xs,
     fontWeight: fontWeights.semibold,
@@ -612,6 +872,19 @@ const s = StyleSheet.create({
     marginLeft: spacing.xs,
   },
   card: { borderRadius: borderRadius.lg, borderWidth: 0.5, overflow: "hidden" },
+  peakBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  peakBannerText: {
+    color: "#fff",
+    fontSize: fontSizes.xs,
+    fontWeight: fontWeights.semibold,
+  },
   budgetRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -651,6 +924,7 @@ const s = StyleSheet.create({
   statValue: { fontSize: fontSizes.lg, fontWeight: fontWeights.bold },
   statLabel: { fontSize: fontSizes.xs, marginTop: 2 },
   statDivider: { width: 0.5, height: "70%", alignSelf: "center" },
+  // Bar chart
   barChart: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -690,6 +964,62 @@ const s = StyleSheet.create({
   legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   legendText: { fontSize: fontSizes.xs },
+  // Efficiency
+  effRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  effLabel: { fontSize: fontSizes.sm, flex: 1 },
+  effValue: { fontSize: fontSizes.sm, fontWeight: fontWeights.bold },
+  effNote: { fontSize: fontSizes.xs, fontStyle: "italic", marginTop: 4 },
+  progressTrack: {
+    height: 8,
+    borderRadius: 4,
+    overflow: "hidden",
+    marginVertical: 4,
+  },
+  progressFill: { height: "100%", borderRadius: 4 },
+  // Table
+  tableHeader: {
+    flexDirection: "row",
+    padding: spacing.sm,
+    borderBottomWidth: 0.5,
+    paddingHorizontal: spacing.md,
+  },
+  tableHeaderCell: {
+    flex: 1,
+    fontSize: fontSizes.xs,
+    fontWeight: fontWeights.semibold,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  tableRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 0.5,
+  },
+  tableCellMain: { fontSize: fontSizes.sm, fontWeight: fontWeights.semibold },
+  tableCell: { flex: 1, fontSize: fontSizes.sm },
+  stateBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: borderRadius.md,
+  },
+  // Pruning log
+  logRow: {
+    flexDirection: "row",
+    padding: spacing.md,
+    borderBottomWidth: 0.5,
+    gap: spacing.sm,
+    alignItems: "flex-start",
+  },
+  logIcon: { fontSize: 14, marginTop: 1 },
+  logName: { fontSize: fontSizes.sm, fontWeight: fontWeights.semibold },
+  logDetail: { fontSize: fontSizes.xs, marginTop: 2 },
+  // Appliance rows
   applianceRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -718,6 +1048,7 @@ const s = StyleSheet.create({
     textAlign: "center",
     fontSize: fontSizes.sm,
   },
+  // How it works
   explainRow: {
     flexDirection: "row",
     padding: spacing.md,

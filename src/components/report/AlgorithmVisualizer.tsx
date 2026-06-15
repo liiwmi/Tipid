@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import type {
   AlgorithmReport,
-  SortedAppliance
+  SortedAppliance,
 } from "../../services/optimizer";
 import type { AppColors } from "../../styles/theme";
 import {
@@ -310,7 +310,7 @@ function AnimCard({
   useEffect(() => {
     Animated.timing(anim, {
       toValue: visible ? 1 : 0,
-      duration: 200,
+      duration: 350,
       useNativeDriver: true,
     }).start();
   }, [visible]);
@@ -400,7 +400,7 @@ function MergeSortViz({
 
   useEffect(() => {
     if (playing) {
-      setVisibleCounts(allStages.map(() => 0));
+      setVisibleCounts(allStages.map(() => 0)); // reset only on fresh play
 
       type Tick = { si: number; ci: number };
       const ticks: Tick[] = [];
@@ -422,10 +422,10 @@ function MergeSortViz({
           return next;
         });
         t++;
-      }, 120);
+      }, 400);
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current);
-      setVisibleCounts(allStages.map(() => 0));
+      // Don't reset — keep cards visible after stopping
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
@@ -842,7 +842,6 @@ export default function AlgorithmVisualizer({ report, colors }: Props) {
         }}
         onPress={() => setPlaying((p) => !p)}
       >
-        <Text style={{ fontSize: 14 }}>{playing ? "⏹" : "▶️"}</Text>
         <Text
           style={{
             color: playing ? colors.textSecondary : "#fff",

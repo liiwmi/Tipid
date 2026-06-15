@@ -55,7 +55,7 @@ function OfflineBanner() {
     <Animated.View
       style={[offlineStyles.banner, { transform: [{ translateY: slideAnim }] }]}
     >
-      <Text style={offlineStyles.icon}>📶</Text>
+      <Text style={offlineStyles.icon}></Text>
       <Text style={offlineStyles.text}>
         You're offline — showing saved data
       </Text>

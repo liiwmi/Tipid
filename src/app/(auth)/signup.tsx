@@ -35,11 +35,17 @@ export default function SignUpScreen() {
       return;
     }
     if (password !== confirmPassword) {
-      Alert.alert("Passwords do not match", "Please ensure both passwords are exactly the same.");
+      Alert.alert(
+        "Passwords do not match",
+        "Please ensure both passwords are exactly the same.",
+      );
       return;
     }
     if (password.length < 6) {
-      Alert.alert("Weak Password", "Your password must be at least 6 characters long.");
+      Alert.alert(
+        "Weak Password",
+        "Your password must be at least 6 characters long.",
+      );
       return;
     }
     setLoading(true);
@@ -85,7 +91,9 @@ export default function SignUpScreen() {
           </View>
 
           <View style={styles.formContainer}>
-            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>Email</Text>
+            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
+              Email
+            </Text>
             <TextInput
               style={[
                 styles.input,
@@ -104,11 +112,16 @@ export default function SignUpScreen() {
               editable={!loading}
             />
 
-            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>Password</Text>
+            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
+              Password
+            </Text>
             <View
               style={[
                 styles.passwordContainer,
-                { borderColor: colors.borderSecondary, backgroundColor: colors.bgInput },
+                {
+                  borderColor: colors.borderSecondary,
+                  backgroundColor: colors.bgInput,
+                },
               ]}
             >
               <TextInput
@@ -120,16 +133,28 @@ export default function SignUpScreen() {
                 secureTextEntry={!showPassword}
                 editable={!loading}
               />
-              <TouchableOpacity style={styles.eyeIcon} onPress={() => setShowPassword(!showPassword)}>
-                <Ionicons name={showPassword ? "eye-off" : "eye"} size={20} color={colors.textSecondary} />
+              <TouchableOpacity
+                style={styles.eyeIcon}
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <Ionicons
+                  name={showPassword ? "eye-off" : "eye"}
+                  size={20}
+                  color={colors.textSecondary}
+                />
               </TouchableOpacity>
             </View>
 
-            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>Confirm Password</Text>
+            <Text style={[styles.inputLabel, { color: colors.textPrimary }]}>
+              Confirm Password
+            </Text>
             <View
               style={[
                 styles.passwordContainer,
-                { borderColor: colors.borderSecondary, backgroundColor: colors.bgInput },
+                {
+                  borderColor: colors.borderSecondary,
+                  backgroundColor: colors.bgInput,
+                },
               ]}
             >
               <TextInput
@@ -141,8 +166,15 @@ export default function SignUpScreen() {
                 secureTextEntry={!showConfirmPassword}
                 editable={!loading}
               />
-              <TouchableOpacity style={styles.eyeIcon} onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-                <Ionicons name={showConfirmPassword ? "eye-off" : "eye"} size={20} color={colors.textSecondary} />
+              <TouchableOpacity
+                style={styles.eyeIcon}
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+              >
+                <Ionicons
+                  name={showConfirmPassword ? "eye-off" : "eye"}
+                  size={20}
+                  color={colors.textSecondary}
+                />
               </TouchableOpacity>
             </View>
 
